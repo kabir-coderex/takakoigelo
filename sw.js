@@ -1,4 +1,4 @@
-const CACHE_NAME = 'budget-tracker-v2';
+const CACHE_NAME = 'budget-tracker-v3';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -10,61 +10,77 @@ const ASSETS_TO_CACHE = [
   './logo-64x64.png'
 ];
 
-// Install — pre-cache app shell
+// Install: Pre-cache app shell safely without blocking on single image failure
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
-    }).catch(err => console.error('[SW] Pre-cache failed:', err))
+      return Promise.allSettled(
+        ASSETS_TO_CACHE.map((url) =>
+          cache.add(url).catch((err) => console.warn('[SW] Could not cache asset:', url, err))
+        )
+      );
+    })
   );
 });
 
-// Activate — purge old caches
+// Activate: Take control immediately & delete old cache versions
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames
-          .filter(name => name !== CACHE_NAME)
-          .map(name => caches.delete(name))
+          .filter((name) => name !== CACHE_NAME)
+          .map((name) => {
+            console.log('[SW] Deleting old cache:', name);
+            return caches.delete(name);
+          })
       );
     }).then(() => self.clients.claim())
   );
 });
 
-// Fetch — cache-first for all GET requests, dynamic caching for fonts
+// Fetch: Always serve HTML from cache FIRST for instant offline PWA startup
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
-  const url = new URL(event.request.url);
+  const isNavigation =
+    event.request.mode === 'navigate' ||
+    (event.request.headers.get('accept') && event.request.headers.get('accept').includes('text/html'));
 
-  // For Google Fonts (CSS + woff2 files) — cache-first with network fallback
-  const isFontReq = url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
+  if (isNavigation) {
+    event.respondWith(
+      caches.match(event.request, { ignoreSearch: true }).then((cached) => {
+        if (cached) return cached;
+        // Fallback to index.html or root if start_url had extra parameters
+        return caches.match('./index.html', { ignoreSearch: true }).then((indexCached) => {
+          if (indexCached) return indexCached;
+          return caches.match('./', { ignoreSearch: true }).then((rootCached) => {
+            if (rootCached) return rootCached;
+            return fetch(event.request);
+          });
+        });
+      }).catch(() => caches.match('./index.html', { ignoreSearch: true }))
+    );
+    return;
+  }
 
+  // Non-navigation GET requests (icons, manifest, images, etc.)
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
+    caches.match(event.request, { ignoreSearch: true }).then((cachedResponse) => {
+      if (cachedResponse) return cachedResponse;
 
-      // Not in cache — try network
-      return fetch(event.request).then((response) => {
-        // Cache successful responses for app assets and font resources
-        if (response && response.status === 200) {
-          const isOwnAsset = url.origin === self.location.origin;
-          if (isOwnAsset || isFontReq) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-          }
+      return fetch(event.request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
         }
-        return response;
-      }).catch(() => {
-        // Offline fallback for navigation
-        if (event.request.mode === 'navigate') {
-          return caches.match('./index.html');
-        }
-        // For fonts that aren't cached yet — just fail silently, system fonts will be used
-        return new Response('', { status: 503, statusText: 'Offline' });
+        return networkResponse;
       });
+    }).catch(() => {
+      return new Response('', { status: 404, statusText: 'Offline asset not found' });
     })
   );
 });

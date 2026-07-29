@@ -241,6 +241,48 @@ select option{background:#13161f}
   </div>
 </div>
 
+<!-- Modal: Import Categories CSV -->
+<div class="modal-overlay" id="importCatModal">
+  <div class="modal" style="max-width:440px">
+    <h3>Import Categories (CSV)</h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+      Import categories from CSV file or text.<br/>Format: <code>Category, Budget</code> (e.g. <code>Rent, 15000</code>)
+    </div>
+    
+    <div class="frow">
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Target Categories:</label>
+      <select id="importCatTarget" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border2);color:var(--text);border-radius:6px;font-size:13px">
+        <option value="global">Global Category Template</option>
+        <option value="month">Active Month Categories</option>
+      </select>
+    </div>
+
+    <div class="frow" style="display:flex;gap:16px;margin:8px 0;font-size:12px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="radio" name="importCatMode" value="append" checked /> Append / Merge
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="radio" name="importCatMode" value="replace" /> Replace All
+      </label>
+    </div>
+
+    <div class="frow">
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Option A: Upload CSV File</label>
+      <input type="file" id="importCatFile" accept=".csv,.txt" style="font-size:12px;width:100%" onchange="handleCatFileUpload(event)" />
+    </div>
+
+    <div class="frow">
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Option B: Or Paste CSV Content</label>
+      <textarea id="importCatText" placeholder="Rent & Fixed Bills, 14700&#10;Groceries & Rice, 4500&#10;Internet Bill, 500" rows="5" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border2);color:var(--text);border-radius:6px;font-family:var(--mono);font-size:12px;resize:vertical"></textarea>
+    </div>
+
+    <div class="modal-btns">
+      <button class="btn-ghost" onclick="closeModal('importCatModal')">Cancel</button>
+      <button class="btn btn-sm" onclick="processCatImport()">Import Categories</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -563,6 +605,29 @@ function renderCats() {
   const cl = document.getElementById('catList'); if(!cl) return;
   const wasOpen = new Set([...cl.querySelectorAll('.cat-row.open')].map(r=>r.dataset.catid));
   cl.innerHTML='';
+
+  if (m.categories.length === 0) {
+    cl.innerHTML = `
+      <div class="empty-state" style="padding:40px 16px">
+        <div style="font-size:32px;margin-bottom:12px">🏷️</div>
+        <div style="font-size:15px;font-weight:600;margin-bottom:6px">No categories yet</div>
+        <div style="margin-bottom:16px;color:var(--muted);font-size:13px">Add categories or import them from CSV file/text</div>
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+          <button class="btn btn-sm" onclick="showAddCatModal(false)">+ Add Category</button>
+          <button class="btn-outline btn-sm" onclick="showImportCatModal('month')">📥 Import CSV</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  const topBar = document.createElement('div');
+  topBar.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px';
+  topBar.innerHTML = `
+    <span style="font-size:12px;color:var(--muted)">Click a category to see expenses</span>
+    <button class="btn-outline btn-sm" style="padding:4px 8px;font-size:11px" onclick="showImportCatModal('month')">📥 Import CSV</button>
+  `;
+  cl.appendChild(topBar);
+
   m.categories.forEach((c,ci)=>{
     const spent = catSpent(m.expenses,c.id,c.name);
     const p = c.budget>0?Math.min((spent/c.budget)*100,100):0;
@@ -702,20 +767,35 @@ function renderSettings() {
   const content = document.getElementById('mainContent');
   content.innerHTML=`
     <div class="settings-section">
-      <h3>Global Category Template <button class="btn btn-sm" onclick="showAddCatModal(true)">+ Add</button></h3>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h3>Global Category Template</h3>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm" onclick="showAddCatModal(true)">+ Add</button>
+          <button class="btn-outline btn-sm" onclick="showImportCatModal('global')">📥 Import CSV</button>
+        </div>
+      </div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:10px">New months copy these. Drag to reorder.</div>
       <div id="globalCatList"></div>
     </div>
     ${activeMonth?`
     <div class="settings-section">
-      <h3>${months[activeMonth].name} Categories <button class="btn btn-sm" onclick="showAddCatModal(false)">+ Add</button></h3>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h3>${months[activeMonth].name} Categories</h3>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm" onclick="showAddCatModal(false)">+ Add</button>
+          <button class="btn-outline btn-sm" onclick="showImportCatModal('month')">📥 Import CSV</button>
+        </div>
+      </div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Only affects this month.</div>
       <div id="monthCatList"></div>
     </div>`:''}
     <div class="settings-section">
       <h3>Export & Backup</h3>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn-outline" onclick="exportCSV()">Export CSV</button>
+        <button class="btn-outline" onclick="exportCSV()">Export Expenses CSV</button>
+        <button class="btn-outline" onclick="showImportCatModal('global')">Import Categories CSV</button>
+        <button class="btn-outline" onclick="exportCatsCSV(true)">Export Global Categories CSV</button>
+        ${activeMonth?`<button class="btn-outline" onclick="exportCatsCSV(false)">Export Month Categories CSV</button>`:''}
         <button class="btn-outline" onclick="exportJSON()">Backup JSON</button>
         <button class="btn-outline" onclick="importJSON()">Restore JSON</button>
       </div>
@@ -816,7 +896,165 @@ function deleteCat(idx,isGlobal) {
   showToast('Category deleted');
 }
 
-// ─── EXPORT / IMPORT ─────────────────────────────────────────────
+// ─── CATEGORY CSV IMPORT / EXPORT ────────────────────────────────
+function showImportCatModal(targetScope='global') {
+  const targetSel = document.getElementById('importCatTarget');
+  if (targetSel) targetSel.value = targetScope;
+  const fileInp = document.getElementById('importCatFile');
+  if (fileInp) fileInp.value = '';
+  const textInp = document.getElementById('importCatText');
+  if (textInp) textInp.value = '';
+  document.getElementById('importCatModal').classList.add('show');
+}
+
+function handleCatFileUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    document.getElementById('importCatText').value = ev.target.result;
+  };
+  reader.readAsText(file);
+}
+
+function parseCatCSV(text) {
+  if (!text || !text.trim()) return [];
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  if (!lines.length) return [];
+
+  function parseCSVLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    let delim = ',';
+    if (!line.includes(',') && line.includes(';')) delim = ';';
+    else if (!line.includes(',') && !line.includes(';') && line.includes('\t')) delim = '\t';
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        if (inQuotes && line[i+1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === delim && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current.trim());
+    return result;
+  }
+
+  const parsed = [];
+  lines.forEach((line, index) => {
+    const cols = parseCSVLine(line);
+    if (!cols.length) return;
+
+    if (index === 0) {
+      const firstColLower = cols[0].toLowerCase();
+      if (['category', 'categories', 'name', 'cat', 'category name', 'id'].includes(firstColLower)) {
+        return;
+      }
+    }
+
+    let catName = '';
+    let budgetVal = 0;
+
+    if (cols.length >= 3 && !isNaN(parseFloat(cols[2].replace(/[^0-9.-]/g, '')))) {
+      catName = cols[1];
+      budgetVal = parseFloat(cols[2].replace(/[^0-9.-]/g, '')) || 0;
+    } else if (cols.length >= 2) {
+      catName = cols[0];
+      budgetVal = parseFloat(cols[1].replace(/[^0-9.-]/g, '')) || 0;
+    } else {
+      catName = cols[0];
+      budgetVal = 0;
+    }
+
+    catName = catName.replace(/^["']|["']$/g, '').trim();
+    if (catName) {
+      parsed.push({ name: catName, budget: Math.max(0, budgetVal) });
+    }
+  });
+
+  return parsed;
+}
+
+function processCatImport() {
+  const target = document.getElementById('importCatTarget').value;
+  if (target === 'month' && !activeMonth) {
+    showToast('No active month selected');
+    return;
+  }
+
+  const rawText = document.getElementById('importCatText').value;
+  const items = parseCatCSV(rawText);
+  if (!items.length) {
+    showToast('No valid categories found in CSV');
+    return;
+  }
+
+  const mode = document.querySelector('input[name="importCatMode"]:checked')?.value || 'append';
+  const targetArray = target === 'global' ? globalCats : months[activeMonth].categories;
+
+  if (mode === 'replace') {
+    targetArray.length = 0;
+  }
+
+  let addedCount = 0;
+  let updatedCount = 0;
+
+  items.forEach(item => {
+    const existing = targetArray.find(c => c.name.toLowerCase() === item.name.toLowerCase());
+    if (existing) {
+      if (item.budget > 0) {
+        existing.budget = item.budget;
+        updatedCount++;
+      }
+    } else {
+      targetArray.push({
+        id: uid(),
+        name: item.name,
+        budget: item.budget
+      });
+      addedCount++;
+    }
+  });
+
+  saveAll();
+  closeModal('importCatModal');
+
+  if (target === 'global') {
+    renderGlobalCatList();
+  } else {
+    renderMonthCatList();
+  }
+  if (activeMonth) {
+    populateCatSelect();
+    updateStats();
+    if (currentTab === 'cats') renderCats();
+  }
+
+  const scopeLabel = target === 'global' ? 'Global Template' : months[activeMonth]?.name;
+  showToast(`Imported ${addedCount} new, updated ${updatedCount} for ${scopeLabel} ✓`);
+}
+
+function exportCatsCSV(isGlobal=false) {
+  const scope = isGlobal ? 'global' : 'month';
+  const name = isGlobal ? 'global-categories' : `categories-${activeMonth||'active'}`;
+  const list = isGlobal ? globalCats : (months[activeMonth]?.categories || []);
+  if (!list.length) { showToast('No categories to export'); return; }
+  const rows = [['Category','Budget']];
+  list.forEach(c => rows.push([c.name, c.budget]));
+  const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(',')).join('\n');
+  dl('data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv), `${name}.csv`);
+  showToast('Categories CSV downloaded ✓');
+}
 function exportCSV() {
   const m=months[activeMonth]; if(!m){showToast('No month selected');return;}
   const rows=[['Date','Category','Description','Amount (BDT)']];

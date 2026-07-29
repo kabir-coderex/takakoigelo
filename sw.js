@@ -1,4 +1,4 @@
-const CACHE_NAME = 'budget-tracker-v1';
+const CACHE_NAME = 'budget-tracker-v2';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -7,76 +7,63 @@ const ASSETS_TO_CACHE = [
   './apple-touch-icon.png',
   './icon-192.png',
   './icon-512.png',
-  './logo-64x64.png',
-  'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap'
+  './logo-64x64.png'
 ];
 
-// Install Event
+// Install — pre-cache app shell
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[SW] Pre-caching offline assets');
       return cache.addAll(ASSETS_TO_CACHE);
     }).catch(err => console.error('[SW] Pre-cache failed:', err))
   );
 });
 
-// Activate Event
+// Activate — purge old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
-        cacheNames.map((cache) => {
-          if (cache !== CACHE_NAME) {
-            console.log('[SW] Clearing old cache:', cache);
-            return caches.delete(cache);
-          }
-        })
+        cacheNames
+          .filter(name => name !== CACHE_NAME)
+          .map(name => caches.delete(name))
       );
     }).then(() => self.clients.claim())
   );
 });
 
-// Fetch Event - Cache First with Network Fallback & Dynamic Caching
+// Fetch — cache-first for all GET requests, dynamic caching for fonts
 self.addEventListener('fetch', (event) => {
-  // Only handle GET requests
   if (event.request.method !== 'GET') return;
 
+  const url = new URL(event.request.url);
+
+  // For Google Fonts (CSS + woff2 files) — cache-first with network fallback
+  const isFontReq = url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
+
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Return cached version immediately
-        // Also update cache asynchronously in background if online
-        if (navigator.onLine) {
-          fetch(event.request).then((networkResponse) => {
-            if (networkResponse && networkResponse.status === 200) {
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(event.request, networkResponse);
-              });
-            }
-          }).catch(() => {/* ignore background update errors */});
+    caches.match(event.request).then((cached) => {
+      if (cached) return cached;
+
+      // Not in cache — try network
+      return fetch(event.request).then((response) => {
+        // Cache successful responses for app assets and font resources
+        if (response && response.status === 200) {
+          const isOwnAsset = url.origin === self.location.origin;
+          if (isOwnAsset || isFontReq) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          }
         }
-        return cachedResponse;
-      }
-
-      // If not in cache, fetch from network and store in cache
-      return fetch(event.request).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic' && !event.request.url.includes('fonts.gstatic.com')) {
-          return networkResponse;
-        }
-
-        const responseToCache = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
-        });
-
-        return networkResponse;
+        return response;
       }).catch(() => {
-        // Fallback for navigation requests if offline and not in cache
+        // Offline fallback for navigation
         if (event.request.mode === 'navigate') {
           return caches.match('./index.html');
         }
+        // For fonts that aren't cached yet — just fail silently, system fonts will be used
+        return new Response('', { status: 503, statusText: 'Offline' });
       });
     })
   );

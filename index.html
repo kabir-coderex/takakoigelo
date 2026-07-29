@@ -12,8 +12,10 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
   --bg:#0c0e14;--surface:#13161f;--surface2:#1a1e2b;--surface3:#21263a;
@@ -21,28 +23,27 @@
   --accent:#6c8fff;--accent2:#a78bfa;
   --green:#34d399;--red:#f87171;--amber:#fbbf24;
   --text:#dde1f0;--muted:#5a6180;--muted2:#8892b0;
-  --font:'Inter',sans-serif;--mono:'DM Mono',monospace;
+  --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --mono:'DM Mono','SF Mono','Fira Code',ui-monospace,monospace;
 }
-body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;padding-bottom:90px}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;padding-bottom:env(safe-area-inset-bottom,20px);-webkit-text-size-adjust:100%}
+button,select,input,textarea{touch-action:manipulation}
 
 /* HEADER */
-header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 16px;position:sticky;top:0;z-index:200;display:flex;align-items:center;gap:10px}
-.header-left{flex:1}
-.header-title{font-size:14px;font-weight:700;color:var(--accent);letter-spacing:.04em}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 16px;position:sticky;top:0;z-index:200;display:flex;align-items:center;gap:8px}
+.header-left{flex:1;min-width:0}
+.header-title{font-size:14px;font-weight:700;color:var(--accent);letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .header-sub{font-size:11px;color:var(--muted);margin-top:1px}
-.hbtn{background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--muted2);cursor:pointer;font-family:var(--font);font-size:11px;font-weight:500;padding:7px 11px;white-space:nowrap;transition:all .2s}
-.hbtn:hover{border-color:var(--accent);color:var(--accent)}
-.hbtn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-.hbtn.primary:hover{opacity:.85}
+.hbtn{background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--muted2);cursor:pointer;font-family:var(--font);font-size:11px;font-weight:500;padding:8px 12px;min-height:36px;white-space:nowrap;transition:all .2s;flex-shrink:0}
+.hbtn:hover,.hbtn:active{border-color:var(--accent);color:var(--accent)}
 
 /* MONTH SELECTOR BAR */
-.month-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;gap:8px;overflow-x:auto;scrollbar-width:none}
+.month-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;gap:8px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
 .month-bar::-webkit-scrollbar{display:none}
-.month-chip{background:var(--surface2);border:1px solid var(--border);border-radius:99px;color:var(--muted2);cursor:pointer;font-size:12px;font-weight:500;padding:5px 14px;white-space:nowrap;transition:all .2s;flex-shrink:0}
+.month-chip{background:var(--surface2);border:1px solid var(--border);border-radius:99px;color:var(--muted2);cursor:pointer;font-size:12px;font-weight:500;padding:6px 14px;min-height:34px;white-space:nowrap;transition:all .2s;flex-shrink:0}
 .month-chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
-.month-chip:hover:not(.active){border-color:var(--border2);color:var(--text)}
-.add-month-btn{background:none;border:1px dashed var(--border2);border-radius:99px;color:var(--muted);cursor:pointer;font-size:12px;padding:5px 14px;white-space:nowrap;flex-shrink:0;transition:all .2s}
-.add-month-btn:hover{border-color:var(--accent);color:var(--accent)}
+.month-chip:active:not(.active){border-color:var(--border2);color:var(--text)}
+.add-month-btn{background:none;border:1px dashed var(--border2);border-radius:99px;color:var(--muted);cursor:pointer;font-size:12px;padding:6px 14px;min-height:34px;white-space:nowrap;flex-shrink:0;transition:all .2s}
 
 .wrap{max-width:480px;margin:0 auto;padding:0 16px}
 
@@ -54,7 +55,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 .hero{margin:12px 0;background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:20px;position:relative;overflow:hidden}
 .hero::after{content:'';position:absolute;top:-60px;right:-60px;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(108,143,255,.07) 0%,transparent 70%)}
 .hero-label{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
-.hero-amount{font-family:var(--mono);font-size:40px;font-weight:500;line-height:1;margin:6px 0 3px;transition:color .4s}
+.hero-amount{font-family:var(--mono);font-size:36px;font-weight:500;line-height:1;margin:6px 0 3px;transition:color .4s;word-break:break-all}
 .hero-amount.safe{color:var(--green)}.hero-amount.warn{color:var(--amber)}.hero-amount.danger{color:var(--red)}
 .hero-sub{font-size:12px;color:var(--muted2)}
 .hero-bar-bg{background:var(--border);border-radius:99px;height:5px;margin-top:14px;overflow:hidden}
@@ -70,7 +71,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 
 /* TABS */
 .tabs{display:flex;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px;margin-bottom:12px}
-.tab{flex:1;background:none;border:none;border-radius:7px;color:var(--muted);cursor:pointer;font-family:var(--font);font-size:11px;font-weight:500;padding:8px 2px;transition:background .2s,color .2s}
+.tab{flex:1;background:none;border:none;border-radius:7px;color:var(--muted);cursor:pointer;font-family:var(--font);font-size:11px;font-weight:500;padding:10px 2px;min-height:38px;transition:background .2s,color .2s}
 .tab.active{background:var(--accent);color:#fff}
 .tab-panel{display:none}.tab-panel.active{display:block}
 .sec-label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:14px 0 8px}
@@ -78,23 +79,23 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 /* ADD FORM */
 .add-form{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:10px}
 .frow{display:flex;gap:8px;margin-bottom:8px}.frow:last-child{margin-bottom:0}
-select,input[type=text],input[type=number],input[type=month]{background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--font);font-size:13px;padding:9px 12px;width:100%;outline:none;transition:border-color .2s}
+select,input[type=text],input[type=number],input[type=month]{background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--font);font-size:16px;padding:10px 12px;width:100%;outline:none;transition:border-color .2s;min-height:44px}
 select:focus,input:focus{border-color:var(--accent)}
 select option{background:#13161f}
-.btn{background:var(--accent);border:none;border-radius:8px;color:#fff;cursor:pointer;font-family:var(--font);font-size:13px;font-weight:600;padding:9px 16px;white-space:nowrap;transition:opacity .2s}
-.btn:hover{opacity:.85}
-.btn-sm{font-size:11px;padding:6px 12px}
-.btn-ghost{background:transparent;border:1px solid var(--border2);border-radius:8px;color:var(--muted2);cursor:pointer;font-family:var(--font);font-size:11px;padding:6px 12px;transition:all .2s}
-.btn-ghost:hover{border-color:var(--red);color:var(--red)}
-.btn-outline{background:transparent;border:1px solid var(--border2);border-radius:8px;color:var(--muted2);cursor:pointer;font-family:var(--font);font-size:11px;padding:6px 12px;transition:all .2s}
-.btn-outline:hover{border-color:var(--accent);color:var(--accent)}
+.btn{background:var(--accent);border:none;border-radius:8px;color:#fff;cursor:pointer;font-family:var(--font);font-size:13px;font-weight:600;padding:10px 16px;min-height:44px;white-space:nowrap;transition:opacity .2s}
+.btn:active{opacity:.75}
+.btn-sm{font-size:11px;padding:7px 12px;min-height:34px}
+.btn-ghost{background:transparent;border:1px solid var(--border2);border-radius:8px;color:var(--muted2);cursor:pointer;font-family:var(--font);font-size:11px;padding:7px 12px;min-height:34px;transition:all .2s}
+.btn-ghost:active{border-color:var(--red);color:var(--red)}
+.btn-outline{background:transparent;border:1px solid var(--border2);border-radius:8px;color:var(--muted2);cursor:pointer;font-family:var(--font);font-size:11px;padding:7px 12px;min-height:34px;transition:all .2s}
+.btn-outline:active{border-color:var(--accent);color:var(--accent)}
 
 /* CATEGORY ROWS */
 .cat-list{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
 .cat-row{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px;cursor:pointer;transition:border-color .2s}
-.cat-row:hover,.cat-row.open{border-color:var(--border2)}
+.cat-row:active,.cat-row.open{border-color:var(--border2)}
 .cat-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.cat-name{font-size:13px;font-weight:500;flex:1}
+.cat-name{font-size:13px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cat-right{text-align:right;flex-shrink:0}
 .cat-spent{font-family:var(--mono);font-size:13px}
 .cat-of{font-size:10px;color:var(--muted);margin-top:1px}
@@ -102,13 +103,13 @@ select option{background:#13161f}
 .cat-pbar{height:100%;border-radius:99px;transition:width .4s,background .3s}
 .exp-list{margin-top:10px;border-top:1px solid var(--border);padding-top:8px;display:none}
 .cat-row.open .exp-list{display:block}
-.exp-item{display:flex;align-items:flex-start;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)}
+.exp-item{display:flex;align-items:flex-start;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
 .exp-item:last-child{border-bottom:none}
 .exp-desc{font-size:12px}.exp-date{font-size:10px;color:var(--muted);margin-top:2px}
 .exp-r{display:flex;align-items:center;gap:6px;flex-shrink:0}
 .exp-amt{font-family:var(--mono);font-size:12px;color:var(--red)}
-.del-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;opacity:0;transition:opacity .2s,color .2s;padding:2px 4px}
-.exp-item:hover .del-btn{opacity:1}.del-btn:hover{color:var(--red)}
+.del-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;opacity:1;padding:6px 8px;min-width:32px;min-height:32px;display:flex;align-items:center;justify-content:center;transition:color .2s}
+.del-btn:active{color:var(--red)}
 .exp-empty{font-size:11px;color:var(--muted);text-align:center;padding:8px 0}
 
 /* ANALYTICS */
@@ -116,37 +117,36 @@ select option{background:#13161f}
 .ana-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px}
 .ana-card.full{grid-column:1/-1}
 .ana-title{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px}
-.ana-val{font-family:var(--mono);font-size:20px;font-weight:500}
+.ana-val{font-family:var(--mono);font-size:18px;font-weight:500;word-break:break-all}
 .ana-sub{font-size:11px;color:var(--muted2);margin-top:3px}
 .bar-chart{display:flex;flex-direction:column;gap:7px}
-.bc-row{display:flex;align-items:center;gap:8px}
-.bc-label{font-size:11px;color:var(--muted2);width:68px;flex-shrink:0;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bc-row{display:flex;align-items:center;gap:6px}
+.bc-label{font-size:10px;color:var(--muted2);width:54px;flex-shrink:0;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bc-bar-bg{flex:1;background:var(--border);border-radius:99px;height:7px;overflow:hidden}
 .bc-bar{height:100%;border-radius:99px;transition:width .5s ease}
-.bc-val{font-family:var(--mono);font-size:11px;color:var(--muted2);width:52px;flex-shrink:0;text-align:right}
-.spark-wrap{display:flex;align-items:flex-end;gap:3px;height:44px;margin-top:4px}
+.bc-val{font-family:var(--mono);font-size:10px;color:var(--muted2);width:48px;flex-shrink:0;text-align:right}
+.spark-wrap{display:flex;align-items:flex-end;gap:2px;height:44px;margin-top:4px}
 .spark-bar{flex:1;border-radius:3px 3px 0 0;min-height:3px;cursor:default;position:relative}
-.spark-bar:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 4px);left:50%;transform:translateX(-50%);background:var(--surface3);border:1px solid var(--border2);border-radius:6px;font-size:10px;color:var(--text);padding:4px 8px;white-space:nowrap;pointer-events:none;z-index:10}
-.spark-dates{display:flex;gap:3px;margin-top:3px}
-.spark-date{flex:1;font-size:9px;color:var(--muted);text-align:center;overflow:hidden}
-.over-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
+.spark-dates{display:flex;gap:2px;margin-top:3px}
+.spark-date{flex:1;font-size:8px;color:var(--muted);text-align:center;overflow:hidden}
+.over-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);gap:8px}
 .over-item:last-child{border-bottom:none}
-.over-name{font-size:12px}
-.over-badge{font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:99px;font-weight:500}
+.over-name{font-size:12px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.over-badge{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:99px;font-weight:500;flex-shrink:0;white-space:nowrap}
 .over-badge.over{background:rgba(248,113,113,.12);color:var(--red)}
 .over-badge.good{background:rgba(52,211,153,.12);color:var(--green)}
 .top-item{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)}
 .top-item:last-child{border-bottom:none}
 .top-rank{font-family:var(--mono);font-size:11px;color:var(--muted);width:18px}
-.top-info{flex:1;padding:0 8px}
-.top-desc{font-size:12px}.top-cat{font-size:10px;color:var(--muted);margin-top:1px}
-.top-amt{font-family:var(--mono);font-size:13px;color:var(--red)}
+.top-info{flex:1;padding:0 8px;min-width:0;overflow:hidden}
+.top-desc{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.top-cat{font-size:10px;color:var(--muted);margin-top:1px}
+.top-amt{font-family:var(--mono);font-size:13px;color:var(--red);flex-shrink:0}
 
 /* HISTORY */
-.hist-month{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:8px}
-.hist-head{display:flex;align-items:center;justify-content:space-between}
+.hist-month{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:8px;cursor:pointer}
+.hist-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .hist-name{font-size:14px;font-weight:600}
-.hist-spent{font-family:var(--mono);font-size:14px}
+.hist-spent{font-family:var(--mono);font-size:13px;flex-shrink:0}
 .hist-bar-bg{background:var(--border);border-radius:99px;height:3px;margin-top:10px;overflow:hidden}
 .hist-bar{height:100%;border-radius:99px}
 .hist-cats{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px}
@@ -156,44 +156,49 @@ select option{background:#13161f}
 .log-item{background:var(--surface);border:1px solid var(--border);border-radius:10px;display:flex;align-items:flex-start;justify-content:space-between;padding:11px 13px;margin-bottom:7px;gap:8px}
 .log-cat{font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px}
 .log-desc{font-size:13px}.log-date{font-size:10px;color:var(--muted);margin-top:2px}
-.log-r{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.log-r{display:flex;align-items:center;gap:4px;flex-shrink:0}
 .log-amt{font-family:var(--mono);font-size:14px;color:var(--red);font-weight:500}
 .empty-state{text-align:center;color:var(--muted);font-size:13px;padding:32px 0}
 
 /* SETTINGS / CATEGORY MGMT */
 .settings-section{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:10px}
-.settings-section h3{font-size:12px;font-weight:600;color:var(--text);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between}
-.cat-mgmt-item{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
+.settings-section h3{font-size:12px;font-weight:600;color:var(--text);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.cat-mgmt-item{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--border);min-height:44px}
 .cat-mgmt-item:last-child{border-bottom:none}
-.drag-handle{color:var(--muted);cursor:grab;font-size:14px;padding:2px;user-select:none}
-.cat-mgmt-name{flex:1;font-size:13px}
-.cat-mgmt-budget{font-family:var(--mono);font-size:12px;color:var(--accent)}
-.edit-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:3px 5px;transition:color .2s}
-.edit-btn:hover{color:var(--accent)}
-.del-cat-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:3px 5px;transition:color .2s}
-.del-cat-btn:hover{color:var(--red)}
-.cat-form{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:10px}
-.cat-form .frow{margin-bottom:8px}.cat-form .frow:last-child{margin-bottom:0}
+.drag-handle{color:var(--muted);cursor:grab;font-size:16px;padding:4px;user-select:none;min-width:24px;text-align:center}
+.cat-mgmt-name{flex:1;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cat-mgmt-budget{font-family:var(--mono);font-size:12px;color:var(--accent);flex-shrink:0}
+.edit-btn,.del-cat-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:6px 8px;min-width:32px;min-height:32px;display:flex;align-items:center;justify-content:center;transition:color .2s}
+.edit-btn:active{color:var(--accent)}
+.del-cat-btn:active{color:var(--red)}
 .danger-zone{margin-top:10px;border:1px solid var(--border);border-radius:12px;padding:14px}
 .danger-zone p{font-size:12px;color:var(--muted);margin-bottom:8px}
-.btn-danger{background:transparent;border:1px solid var(--red);border-radius:8px;color:var(--red);cursor:pointer;font-family:var(--font);font-size:12px;padding:7px 14px;transition:background .2s}
-.btn-danger:hover{background:rgba(248,113,113,.1)}
+.btn-danger{background:transparent;border:1px solid var(--red);border-radius:8px;color:var(--red);cursor:pointer;font-family:var(--font);font-size:12px;padding:8px 14px;min-height:38px;transition:background .2s}
+.btn-danger:active{background:rgba(248,113,113,.1)}
 
 /* MODAL */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;display:none;align-items:center;justify-content:center;padding:20px}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;display:none;align-items:flex-end;justify-content:center;padding:0}
 .modal-overlay.show{display:flex}
-.modal{background:var(--surface);border:1px solid var(--border2);border-radius:16px;padding:20px;width:100%;max-width:400px}
+.modal{background:var(--surface);border:1px solid var(--border2);border-radius:16px 16px 0 0;padding:20px;padding-bottom:calc(20px + env(safe-area-inset-bottom,0px));width:100%;max-width:480px;max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .modal h3{font-size:15px;font-weight:600;margin-bottom:14px}
 .modal .frow{margin-bottom:10px}.modal .frow:last-child{margin-bottom:0}
 .modal-btns{display:flex;gap:8px;margin-top:14px;justify-content:flex-end}
 
 /* TOAST */
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(16px);background:var(--surface2);border:1px solid var(--border2);border-radius:99px;padding:10px 20px;font-size:13px;opacity:0;transition:opacity .3s,transform .3s;pointer-events:none;white-space:nowrap;z-index:999}
+.toast{position:fixed;bottom:calc(24px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%) translateY(16px);background:var(--surface2);border:1px solid var(--border2);border-radius:99px;padding:10px 20px;font-size:13px;opacity:0;transition:opacity .3s,transform .3s;pointer-events:none;white-space:nowrap;z-index:999;max-width:calc(100vw - 40px);overflow:hidden;text-overflow:ellipsis}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
 /* DRAGGING */
 .cat-mgmt-item.dragging{opacity:.4}
 .cat-mgmt-item.drag-over{border-top:2px solid var(--accent)}
+
+/* RESPONSIVE — very small screens */
+@media(max-width:359px){
+  .hero-amount{font-size:28px}
+  .ana-grid{grid-template-columns:1fr}
+  .ana-card.full{grid-column:1}
+  .stat-grid{grid-template-columns:1fr}
+}
 </style>
 </head>
 <body>
@@ -203,8 +208,7 @@ select option{background:#13161f}
     <div class="header-title" id="headerTitle">Budget Tracker</div>
     <div class="header-sub" id="headerSub">Select a month</div>
   </div>
-  <button class="hbtn" onclick="exportCSV()">CSV</button>
-  <button class="hbtn" onclick="switchMainTab('settings')" id="settingsBtn">⚙ Settings</button>
+  <button class="hbtn" onclick="switchMainTab('settings')" id="settingsBtn">⚙</button>
 </header>
 
 <div class="month-bar" id="monthBar">
@@ -243,42 +247,39 @@ select option{background:#13161f}
 
 <!-- Modal: Import Categories CSV -->
 <div class="modal-overlay" id="importCatModal">
-  <div class="modal" style="max-width:440px">
-    <h3>Import Categories (CSV)</h3>
+  <div class="modal">
+    <h3>Import Categories</h3>
     <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
-      Import categories from CSV file or text.<br/>Format: <code>Category, Budget</code> (e.g. <code>Rent, 15000</code>)
+      Format: <code style="color:var(--accent)">Category, Budget</code>
     </div>
-    
+
     <div class="frow">
-      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Target Categories:</label>
-      <select id="importCatTarget" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border2);color:var(--text);border-radius:6px;font-size:13px">
-        <option value="global">Global Category Template</option>
-        <option value="month">Active Month Categories</option>
+      <select id="importCatTarget">
+        <option value="global">Global Template</option>
+        <option value="month">Current Month</option>
       </select>
     </div>
 
-    <div class="frow" style="display:flex;gap:16px;margin:8px 0;font-size:12px">
+    <div class="frow" style="display:flex;gap:16px;font-size:12px">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-        <input type="radio" name="importCatMode" value="append" checked /> Append / Merge
+        <input type="radio" name="importCatMode" value="append" checked /> Merge
       </label>
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-        <input type="radio" name="importCatMode" value="replace" /> Replace All
+        <input type="radio" name="importCatMode" value="replace" /> Replace
       </label>
     </div>
 
     <div class="frow">
-      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Option A: Upload CSV File</label>
       <input type="file" id="importCatFile" accept=".csv,.txt" style="font-size:12px;width:100%" onchange="handleCatFileUpload(event)" />
     </div>
 
     <div class="frow">
-      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Option B: Or Paste CSV Content</label>
-      <textarea id="importCatText" placeholder="Rent & Fixed Bills, 14700&#10;Groceries & Rice, 4500&#10;Internet Bill, 500" rows="5" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border2);color:var(--text);border-radius:6px;font-family:var(--mono);font-size:12px;resize:vertical"></textarea>
+      <textarea id="importCatText" placeholder="Rent, 15000&#10;Groceries, 4500&#10;Internet, 500" rows="4" style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;font-family:var(--mono);font-size:13px;resize:vertical"></textarea>
     </div>
 
     <div class="modal-btns">
       <button class="btn-ghost" onclick="closeModal('importCatModal')">Cancel</button>
-      <button class="btn btn-sm" onclick="processCatImport()">Import Categories</button>
+      <button class="btn btn-sm" onclick="processCatImport()">Import</button>
     </div>
   </div>
 </div>
@@ -325,7 +326,7 @@ function saveAll() {
 
 function deepCopy(x) { return JSON.parse(JSON.stringify(x)); }
 function uid() { return 'c' + Date.now() + Math.random().toString(36).slice(2,6); }
-function fmt(n) { return '৳' + Math.round(n).toLocaleString('en-IN'); }
+function fmt(n) { const s = Math.round(Math.abs(n)).toLocaleString('en-IN'); return n < 0 ? '-৳' + s : '৳' + s; }
 
 function showToast(msg) {
   const t = document.getElementById('toast');
@@ -355,6 +356,7 @@ function renderMonthBar() {
 
 function selectMonth(key) {
   activeMonth = key;
+  settingsOpen = false;
   localStorage.setItem(S_ACTIVE, key);
   renderMonthBar();
   renderMonth();
@@ -498,7 +500,8 @@ function updateStats() {
   const totalBudget = m.categories.reduce((s,c)=>s+c.budget,0);
   const totalSpent  = m.expenses.reduce((s,e)=>s+e.amt,0);
   const remaining   = totalBudget - totalSpent;
-  const pct         = Math.min((totalSpent/totalBudget)*100,100);
+  const pct         = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0;
+  const isOverBudget = remaining < 0;
 
   // Days calc
   const [yr,mo] = activeMonth.split('-').map(Number);
@@ -513,31 +516,48 @@ function updateStats() {
   // Alert
   const banner = document.getElementById('alertBanner');
   if (banner) {
-    if (remaining < totalBudget*0.1 && daysLeft>0) {
+    if (isOverBudget) {
+      banner.textContent = `🚨 Over budget by ${fmt(Math.abs(remaining))}! No daily spending room left.`;
+      banner.classList.add('show');
+    } else if (remaining < totalBudget*0.1 && daysLeft>0) {
       banner.textContent = `⚠️ Only ${fmt(remaining)} left for ${daysLeft} days — ${fmt(neededPerDay)}/day needed`;
       banner.classList.add('show');
-    } else banner.classList.remove('show');
+    } else {
+      banner.classList.remove('show');
+    }
   }
 
   const heroAmt = document.getElementById('heroAmt');
   if (!heroAmt) return;
   heroAmt.textContent = fmt(remaining);
   heroAmt.className = 'hero-amount '+(pct<60?'safe':pct<85?'warn':'danger');
-  document.getElementById('heroSub').textContent = `${fmt(totalSpent)} spent of ${fmt(totalBudget)}`;
+  document.getElementById('heroSub').textContent = `${fmt(totalSpent)} spent of ${fmt(totalBudget)}${isOverBudget ? ` (${fmt(Math.abs(remaining))} over)` : ''}`;
   const bar = document.getElementById('heroBar');
-  bar.style.width = pct+'%';
+  bar.style.width = Math.min(pct, 100)+'%';
   bar.style.background = pct<60?'var(--green)':pct<85?'var(--amber)':'var(--red)';
 
   document.getElementById('stSpent').textContent = fmt(totalSpent);
-  document.getElementById('stSpentSub').textContent = pct.toFixed(1)+'% of budget';
+  document.getElementById('stSpentSub').textContent = totalBudget > 0 ? pct.toFixed(1)+'% of budget' : 'No budget set';
   document.getElementById('stDaily').textContent = fmt(dailyAvg);
   document.getElementById('stDailySub').textContent = 'avg over '+daysPassed+' days';
   document.getElementById('stDaysLeft').textContent = daysLeft;
   document.getElementById('stDaysLeftSub').textContent = isCurrentMonth?'days remaining':'month ended';
   const ndEl = document.getElementById('stNeeded');
-  ndEl.textContent = daysLeft>0?fmt(neededPerDay):'—';
-  ndEl.className = 'sc-val '+(neededPerDay<1000?'green':neededPerDay<1500?'amber':'red');
-  document.getElementById('stNeededSub').textContent = daysLeft>0?'to stay on track':'';
+  if (daysLeft > 0) {
+    if (isOverBudget) {
+      ndEl.textContent = '৳0';
+      ndEl.className = 'sc-val red';
+      document.getElementById('stNeededSub').textContent = 'over budget';
+    } else {
+      ndEl.textContent = fmt(neededPerDay);
+      ndEl.className = 'sc-val '+(neededPerDay<1000?'green':neededPerDay<1500?'amber':'red');
+      document.getElementById('stNeededSub').textContent = 'to stay on track';
+    }
+  } else {
+    ndEl.textContent = '—';
+    ndEl.className = 'sc-val';
+    document.getElementById('stNeededSub').textContent = isCurrentMonth ? 'last day' : 'month ended';
+  }
 }
 
 // ─── CAT SELECT ──────────────────────────────────────────────────
@@ -620,14 +640,6 @@ function renderCats() {
     return;
   }
 
-  const topBar = document.createElement('div');
-  topBar.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px';
-  topBar.innerHTML = `
-    <span style="font-size:12px;color:var(--muted)">Click a category to see expenses</span>
-    <button class="btn-outline btn-sm" style="padding:4px 8px;font-size:11px" onclick="showImportCatModal('month')">📥 Import CSV</button>
-  `;
-  cl.appendChild(topBar);
-
   m.categories.forEach((c,ci)=>{
     const spent = catSpent(m.expenses,c.id,c.name);
     const p = c.budget>0?Math.min((spent/c.budget)*100,100):0;
@@ -661,6 +673,7 @@ function renderAnalytics() {
   const grid = document.getElementById('anaGrid'); if(!grid) return;
   const totalBudget = m.categories.reduce((s,c)=>s+c.budget,0);
   const totalSpent  = m.expenses.reduce((s,e)=>s+e.amt,0);
+  const budgetSafe  = Math.max(totalBudget, 1);
 
   // By date
   const byDate={};
@@ -708,7 +721,7 @@ function renderAnalytics() {
     </div>`).join('');
 
   grid.innerHTML=`
-    <div class="ana-card"><div class="ana-title">Total Spent</div><div class="ana-val red">${fmt(totalSpent)}</div><div class="ana-sub">${((totalSpent/totalBudget)*100).toFixed(1)}% of ${fmt(totalBudget)}</div></div>
+    <div class="ana-card"><div class="ana-title">Total Spent</div><div class="ana-val red">${fmt(totalSpent)}</div><div class="ana-sub">${((totalSpent/budgetSafe)*100).toFixed(1)}% of ${fmt(totalBudget)}</div></div>
     <div class="ana-card"><div class="ana-title">Transactions</div><div class="ana-val accent">${m.expenses.length}</div><div class="ana-sub">${m.expenses.length?'avg '+fmt(totalSpent/m.expenses.length)+' each':''}</div></div>
     <div class="ana-card"><div class="ana-title">Highest Day</div><div class="ana-val amber">${fmt(maxDay[1])}</div><div class="ana-sub">${maxDay[0]||'—'}</div></div>
     <div class="ana-card"><div class="ana-title">Biggest Spend</div><div class="ana-val">${fmt(biggest.amt)}</div><div class="ana-sub">${biggest.desc}</div></div>
@@ -755,7 +768,7 @@ function renderLog() {
       <div><div class="log-cat">${e.cat}</div><div class="log-desc">${e.desc}</div><div class="log-date">${e.date}</div></div>
       <div class="log-r">
         <div class="log-amt">${fmt(e.amt)}</div>
-        <button class="del-btn" style="opacity:1" onclick="deleteExpense(${e.id})">✕</button>
+        <button class="del-btn" onclick="deleteExpense(${e.id})">✕</button>
       </div>
     </div>`).join('');
 }
@@ -763,47 +776,47 @@ function renderLog() {
 // ─── SETTINGS ────────────────────────────────────────────────────
 function renderSettings() {
   document.getElementById('headerTitle').textContent = 'Settings';
-  document.getElementById('headerSub').textContent = 'Categories & Budgets';
+  document.getElementById('headerSub').textContent = 'Manage categories & data';
   const content = document.getElementById('mainContent');
   content.innerHTML=`
     <div class="settings-section">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <h3>Global Category Template</h3>
+      <h3>
+        <span>Global Template</span>
         <div style="display:flex;gap:6px">
-          <button class="btn btn-sm" onclick="showAddCatModal(true)">+ Add</button>
-          <button class="btn-outline btn-sm" onclick="showImportCatModal('global')">📥 Import CSV</button>
+          <button class="btn-sm btn-outline" onclick="showImportCatModal('global')">📥</button>
+          <button class="btn btn-sm" onclick="showAddCatModal(true)">+</button>
         </div>
-      </div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">New months copy these. Drag to reorder.</div>
+      </h3>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">New months inherit these categories</div>
       <div id="globalCatList"></div>
     </div>
     ${activeMonth?`
     <div class="settings-section">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <h3>${months[activeMonth].name} Categories</h3>
+      <h3>
+        <span>${months[activeMonth].name}</span>
         <div style="display:flex;gap:6px">
-          <button class="btn btn-sm" onclick="showAddCatModal(false)">+ Add</button>
-          <button class="btn-outline btn-sm" onclick="showImportCatModal('month')">📥 Import CSV</button>
+          <button class="btn-sm btn-outline" onclick="showImportCatModal('month')">📥</button>
+          <button class="btn btn-sm" onclick="showAddCatModal(false)">+</button>
         </div>
-      </div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Only affects this month.</div>
+      </h3>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Only this month</div>
       <div id="monthCatList"></div>
     </div>`:''}
     <div class="settings-section">
-      <h3>Export & Backup</h3>
+      <h3>Data</h3>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn-outline" onclick="exportCSV()">Export Expenses CSV</button>
-        <button class="btn-outline" onclick="showImportCatModal('global')">Import Categories CSV</button>
-        <button class="btn-outline" onclick="exportCatsCSV(true)">Export Global Categories CSV</button>
-        ${activeMonth?`<button class="btn-outline" onclick="exportCatsCSV(false)">Export Month Categories CSV</button>`:''}
-        <button class="btn-outline" onclick="exportJSON()">Backup JSON</button>
-        <button class="btn-outline" onclick="importJSON()">Restore JSON</button>
+        ${activeMonth?`<button class="btn-outline" onclick="exportCSV()">📄 Expenses CSV</button>`:''}
+        <button class="btn-outline" onclick="exportCatsCSV(true)">📄 Categories CSV</button>
+        <button class="btn-outline" onclick="exportJSON()">💾 Backup</button>
+        <button class="btn-outline" onclick="importJSON()">📂 Restore</button>
       </div>
     </div>
     <div class="danger-zone">
-      <p>Permanently delete a month or all data.</p>
-      ${activeMonth?`<button class="btn-danger" onclick="deleteMonth('${activeMonth}')" style="margin-right:8px">Delete ${months[activeMonth]?.name}</button>`:''}
-      <button class="btn-danger" onclick="nukeAll()">Delete Everything</button>
+      <p>Permanently delete data. Cannot be undone.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${activeMonth?`<button class="btn-danger" onclick="deleteMonth('${activeMonth}')">Delete ${months[activeMonth]?.name}</button>`:''}
+        <button class="btn-danger" onclick="nukeAll()">Delete All</button>
+      </div>
     </div>`;
   renderGlobalCatList();
   if (activeMonth) renderMonthCatList();

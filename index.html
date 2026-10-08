@@ -47,6 +47,19 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 /* ALERT */
 .alert-banner{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);border-radius:12px;padding:12px 14px;margin:12px 0 0;font-size:12px;color:var(--red);display:none}
 .alert-banner.show{display:block}
+.backup-banner{background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.28);border-radius:12px;padding:12px 14px;margin:12px 0 0;font-size:12px;color:var(--amber);display:flex;align-items:center;justify-content:space-between;gap:10px}
+.backup-banner .btn-outline{color:var(--amber);border-color:rgba(251,191,36,.35)}
+.safety-screen{max-width:480px;margin:24px auto;padding:0 16px}
+.safety-card{background:var(--surface);border:1px solid var(--border2);border-radius:16px;padding:20px;margin-bottom:12px}
+.safety-card h2{font-size:18px;margin-bottom:8px}.safety-card p{font-size:13px;color:var(--muted2);line-height:1.55;margin-bottom:12px}
+.safety-summary{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}
+.safety-stat{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px}.safety-stat strong{display:block;font-family:var(--mono);font-size:16px;color:var(--text)}.safety-stat span{font-size:10px;color:var(--muted);text-transform:uppercase}
+.safety-check{display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--muted2);margin:12px 0;line-height:1.4}.safety-check input{margin-top:2px}
+.error-details{font-family:var(--mono);font-size:11px;white-space:pre-wrap;word-break:break-word;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--red);margin:10px 0}
+.storage-issue{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));max-width:520px;margin:auto;background:var(--surface2);border:1px solid var(--red);border-radius:12px;padding:12px;z-index:1200;display:none;box-shadow:0 12px 36px rgba(0,0,0,.45)}
+.storage-issue.show{display:block}.storage-issue p{font-size:12px;color:var(--text);line-height:1.4;margin-bottom:9px}.storage-issue-actions{display:flex;gap:6px;flex-wrap:wrap}
+.restore-warnings{font-size:11px;color:var(--amber);line-height:1.5;margin-top:10px}
+.recovery-item{padding:9px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px}.recovery-item:last-child{border-bottom:none}.recovery-meta{font-size:11px;color:var(--muted2);line-height:1.4}
 
 /* HERO */
 .hero{margin:12px 0;background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:20px;position:relative;overflow:hidden}
@@ -283,42 +296,112 @@ select option{background:#13161f}
 
 <div class="toast" id="toast"></div>
 
-<script>
-// ─── STORAGE KEYS ───────────────────────────────────────────────
-const S_MONTHS    = 'bt_months';    // { [monthKey]: { name, budget, categories:[{id,name,budget}], expenses:[...] } }
-const S_CATS      = 'bt_global_cats'; // [{id,name,budget}] — global category template
-const S_ACTIVE    = 'bt_active_month';
+<!-- Modal: Restore Preview -->
+<div class="modal-overlay" id="restorePreviewModal">
+  <div class="modal">
+    <h3>Restore Preview</h3>
+    <div id="restorePreviewContent"></div>
+    <div class="modal-btns">
+      <button class="btn-ghost" onclick="cancelRestorePreview()">Cancel</button>
+      <button class="btn btn-sm" onclick="confirmRestore()">Replace Current Data</button>
+    </div>
+  </div>
+</div>
 
+<div class="storage-issue" id="storageIssue" role="alert">
+  <p id="storageIssueText"></p>
+  <div class="storage-issue-actions">
+    <button class="btn-outline btn-sm" id="retrySaveBtn" onclick="retryPendingSave()">Retry save</button>
+    <button class="btn-outline btn-sm" id="exportUnsavedBtn" onclick="exportUnsavedData()">Export unsaved copy</button>
+    <button class="btn-danger" id="reloadDataBtn" onclick="reloadActiveData()">Reload latest</button>
+    <button class="btn-ghost" onclick="hideStorageIssue()">Close</button>
+  </div>
+</div>
+
+<script src="storage.js"></script>
+<script>
 const CAT_COLORS  = ["#6c8fff","#a78bfa","#34d399","#fbbf24","#f472b6","#38bdf8","#fb923c","#4ade80","#e879f9","#22d3ee","#f87171","#a3e635"];
 
 // ─── STATE ───────────────────────────────────────────────────────
 let months = {};        // { [key]: { name, categories, expenses } }
 let globalCats = [];    // [{id,name,budget}]
 let activeMonth = null; // key like '2026-07'
+let storedActiveMonth = null; // Exact persisted value; may be invalid legacy data awaiting review
 let currentTab = 'add';
 let editCatId = null;
 let editCatIsGlobal = false;
 let dragSrcIdx = null;
+let appSettings = { lastBackupAt: null };
+let loadedRevision = null;
+let migrationState = null;
+let pendingRestore = null;
+let recoveryMode = false;
+let recoveryState = null;
+let staleDataDetected = false;
+const storageAdapter = new BudgetStorage.Adapter(localStorage);
 
 // ─── INIT ────────────────────────────────────────────────────────
-function init() {
-  try { months = JSON.parse(localStorage.getItem(S_MONTHS)||'{}'); } catch(e){ months={}; }
-  try { globalCats = JSON.parse(localStorage.getItem(S_CATS)||'[]'); } catch(e){ globalCats=[]; }
-  activeMonth = localStorage.getItem(S_ACTIVE) || null;
-
-  if (!activeMonth || !months[activeMonth]) {
-    activeMonth = Object.keys(months)[0] || null;
+async function init() {
+  let result;
+  try {
+    result = await storageAdapter.bootstrapExclusive();
+  } catch (error) {
+    recoveryMode = true;
+    recoveryState = { status: 'recovery_required', error, rawLegacy: null, activePointer: null };
+    renderRecoveryScreen();
+    return;
   }
-
+  if (result.status === 'migration_required') {
+    migrationState = result;
+    renderMigrationGate();
+    return;
+  }
+  if (result.status === 'recovery_required') {
+    recoveryMode = true;
+    recoveryState = result;
+    renderRecoveryScreen();
+    return;
+  }
+  loadEnvelope(result.envelope);
   renderMonthBar();
   if (activeMonth) renderMonth();
   else renderEmpty();
 }
 
-function saveAll() {
-  localStorage.setItem(S_MONTHS, JSON.stringify(months));
-  localStorage.setItem(S_CATS, JSON.stringify(globalCats));
-  if (activeMonth) localStorage.setItem(S_ACTIVE, activeMonth);
+function currentData() {
+  return { months, globalCats, activeMonth: storedActiveMonth, settings: appSettings };
+}
+
+function loadEnvelope(envelope) {
+  const data = JSON.parse(JSON.stringify(envelope.data));
+  months = data.months;
+  globalCats = data.globalCats;
+  storedActiveMonth = data.activeMonth;
+  activeMonth = storedActiveMonth;
+  appSettings = data.settings || { lastBackupAt: null };
+  if (!activeMonth || !months[activeMonth]) activeMonth = Object.keys(months).sort()[0] || null;
+  loadedRevision = envelope.revision;
+  staleDataDetected = false;
+  document.getElementById('settingsBtn').disabled = false;
+  hideStorageIssue();
+}
+
+async function saveAll() {
+  if (staleDataDetected) {
+    const error = new Error('A newer dataset exists in another tab. Export this tab\'s unsaved copy or reload the latest data.');
+    showStorageIssue(error.message);
+    throw error;
+  }
+  try {
+    const result = await storageAdapter.writeExclusive(currentData(), loadedRevision);
+    loadedRevision = result.envelope.revision;
+    hideStorageIssue();
+    return true;
+  } catch (error) {
+    if (error.code === 'REVISION_CONFLICT') staleDataDetected = true;
+    showStorageIssue(error.message || 'Data could not be saved. Your changes remain open for retry or export.');
+    throw error;
+  }
 }
 
 function deepCopy(x) { return JSON.parse(JSON.stringify(x)); }
@@ -330,6 +413,147 @@ function showToast(msg) {
   t.textContent = msg;
   t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+function summaryHTML(summary) {
+  return `<div class="safety-summary">
+    <div class="safety-stat"><strong>${summary.months}</strong><span>Months</span></div>
+    <div class="safety-stat"><strong>${summary.monthlyCategories}</strong><span>Monthly categories</span></div>
+    <div class="safety-stat"><strong>${summary.globalCategories}</strong><span>Template categories</span></div>
+    <div class="safety-stat"><strong>${summary.transactions}</strong><span>Transactions</span></div>
+    <div class="safety-stat"><strong>${fmt(summary.totalAmount)}</strong><span>Total recorded</span></div>
+  </div>`;
+}
+
+function renderMigrationGate() {
+  document.getElementById('headerTitle').textContent = 'Safe data upgrade';
+  document.getElementById('headerSub').textContent = 'Backup required before migration';
+  document.getElementById('monthBar').style.display = 'none';
+  document.getElementById('settingsBtn').disabled = true;
+  document.getElementById('mainContent').innerHTML = `<div class="safety-screen">
+    <div class="safety-card">
+      <h2>Protect your existing records</h2>
+      <p>This version uses safer, versioned storage. Your current data has been read without changing it. Download the pre-upgrade backup and verify that the file is available before continuing.</p>
+      ${summaryHTML(migrationState.summary)}
+      <button class="btn" id="preMigrationDownload" onclick="downloadPreMigrationBackup()">Download pre-upgrade backup</button>
+      <label class="safety-check"><input type="checkbox" id="migrationVerified" onchange="updateMigrationButton()" disabled><span>I saved the backup and verified it on a separate test copy or profile.</span></label>
+      <button class="btn" id="runMigrationBtn" onclick="completeMigration()" disabled>Upgrade safely</button>
+      <p style="margin-top:12px;margin-bottom:0">The original browser keys and an exact raw snapshot will be retained after migration.</p>
+    </div>
+  </div>`;
+}
+
+function downloadPreMigrationBackup() {
+  try {
+    const backup = storageAdapter.createPreMigrationBackup(migrationState.data, migrationState.rawLegacy);
+    downloadJSON(backup, `taka-koi-gelo-pre-upgrade-${new Date().toISOString().slice(0,10)}.json`);
+    const checkbox = document.getElementById('migrationVerified');
+    checkbox.disabled = false;
+    document.getElementById('preMigrationDownload').textContent = 'Download again';
+    showToast('Backup export started — verify the downloaded file');
+  } catch (error) {
+    showStorageIssue(error.message);
+  }
+}
+
+function updateMigrationButton() {
+  document.getElementById('runMigrationBtn').disabled = !document.getElementById('migrationVerified').checked;
+}
+
+async function completeMigration() {
+  if (!document.getElementById('migrationVerified')?.checked) return;
+  try {
+    const result = await storageAdapter.migrateLegacyExclusive(migrationState.rawLegacy);
+    migrationState = null;
+    loadEnvelope(result.envelope);
+    document.getElementById('monthBar').style.display = '';
+    renderMonthBar();
+    if (activeMonth) renderMonth(); else renderEmpty();
+    showToast('Data upgraded and verified ✓');
+  } catch (error) {
+    showStorageIssue(error.message);
+  }
+}
+
+function renderRecoveryScreen() {
+  const error = recoveryState.error || new Error('Stored data is unreadable');
+  document.getElementById('headerTitle').textContent = 'Recovery required';
+  document.getElementById('headerSub').textContent = 'Existing data was not modified';
+  document.getElementById('monthBar').style.display = 'none';
+  document.getElementById('settingsBtn').disabled = true;
+  document.getElementById('mainContent').innerHTML = `<div class="safety-screen">
+    <div class="safety-card">
+      <h2>Your current data needs attention</h2>
+      <p>The app found malformed or incomplete stored data. It did not replace it with an empty dataset. Export the raw recovery package before restoring a known-good backup.</p>
+      <div class="error-details" id="recoveryError"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" onclick="exportRawRecovery()">Export raw recovery data</button>
+        <button class="btn-outline" onclick="importJSON()">Restore valid backup</button>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('recoveryError').textContent = `${error.code || 'STORAGE_ERROR'}: ${error.message}`;
+}
+
+function exportRawRecovery() {
+  const recovery = storageAdapter.exportRawRecovery(recoveryState?.rawLegacy, recoveryState?.error);
+  downloadJSON(recovery, `taka-koi-gelo-raw-recovery-${new Date().toISOString().slice(0,10)}.json`);
+  showToast('Raw recovery export started');
+}
+
+function showStorageIssue(message) {
+  document.getElementById('storageIssueText').textContent = message;
+  const hasActiveData = !recoveryMode && !migrationState && !!loadedRevision;
+  document.getElementById('retrySaveBtn').style.display = hasActiveData ? '' : 'none';
+  document.getElementById('exportUnsavedBtn').style.display = hasActiveData ? '' : 'none';
+  document.getElementById('reloadDataBtn').style.display = hasActiveData ? '' : 'none';
+  document.getElementById('storageIssue').classList.add('show');
+}
+
+function hideStorageIssue() {
+  document.getElementById('storageIssue').classList.remove('show');
+}
+
+async function retryPendingSave() {
+  if (recoveryMode || migrationState || !loadedRevision) return;
+  try {
+    await saveAll();
+    showToast('Saved successfully ✓');
+  } catch (_) {}
+}
+
+function exportUnsavedData() {
+  if (recoveryMode || migrationState || !loadedRevision) return;
+  try {
+    const backup = storageAdapter.createBackup(currentData(), { kind: 'unsaved-recovery', baseRevision: loadedRevision });
+    downloadJSON(backup, `taka-koi-gelo-unsaved-${new Date().toISOString().slice(0,10)}.json`);
+    showToast('Unsaved copy export started');
+  } catch (error) {
+    showStorageIssue(error.message);
+  }
+}
+
+function reloadActiveData() {
+  if (recoveryMode || migrationState || !loadedRevision) return;
+  if (!confirm('Reload the latest saved data? Export the unsaved copy first if you need these in-memory changes.')) return;
+  try {
+    const active = storageAdapter.readActive();
+    if (!active) throw new Error('No active dataset is available');
+    loadEnvelope(active.envelope);
+    settingsOpen = false;
+    renderMonthBar();
+    if (activeMonth) renderMonth(); else renderEmpty();
+  } catch (error) {
+    showStorageIssue(error.message);
+  }
+}
+
+function backupReminderHTML() {
+  const last = appSettings.lastBackupAt ? new Date(appSettings.lastBackupAt) : null;
+  const overdue = !last || (Date.now() - last.getTime()) > 30 * 24 * 60 * 60 * 1000;
+  if (!overdue) return '';
+  const label = last ? `Last backup export was ${last.toLocaleDateString()}.` : 'No full backup has been exported yet.';
+  return `<div class="backup-banner"><span>⚠ ${label} Verify and keep a copy outside this browser.</span><button class="btn-outline btn-sm" onclick="exportJSON()">Back up</button></div>`;
 }
 
 // ─── MONTH BAR ───────────────────────────────────────────────────
@@ -351,10 +575,11 @@ function renderMonthBar() {
   bar.appendChild(add);
 }
 
-function selectMonth(key) {
+async function selectMonth(key) {
   activeMonth = key;
+  storedActiveMonth = key;
   settingsOpen = false;
-  localStorage.setItem(S_ACTIVE, key);
+  await saveAll();
   renderMonthBar();
   renderMonth();
 }
@@ -376,7 +601,7 @@ function updateNewMonthNote() {
   if (lastKey) note.textContent = `Will copy categories & budgets from ${months[lastKey].name}`;
   else note.textContent = globalCats.length ? 'Will copy global categories' : 'Will start with no categories';
 }
-function createMonth() {
+async function createMonth() {
   const val = document.getElementById('newMonthInput').value;
   if (!val) { showToast('Pick a month'); return; }
   if (months[val]) { showToast('Month already exists'); closeModal('newMonthModal'); selectMonth(val); return; }
@@ -386,10 +611,10 @@ function createMonth() {
   const keys = Object.keys(months).sort();
   const srcCats = keys.length ? deepCopy(months[keys[keys.length-1]].categories) : deepCopy(globalCats);
   months[val] = { name, categories: srcCats, expenses: [] };
-  saveAll();
+  await saveAll();
   closeModal('newMonthModal');
   renderMonthBar();
-  selectMonth(val);
+  await selectMonth(val);
   showToast(`${name} created ✓`);
 }
 
@@ -403,6 +628,7 @@ function renderMonth() {
 
   const content = document.getElementById('mainContent');
   content.innerHTML = `
+    ${backupReminderHTML()}
     <div class="alert-banner" id="alertBanner"></div>
     <div class="hero">
       <div class="hero-label">Remaining Balance</div>
@@ -458,6 +684,7 @@ function renderMonth() {
 
 function renderEmpty() {
   document.getElementById('mainContent').innerHTML = `
+    ${backupReminderHTML()}
     <div class="empty-state" style="padding:60px 0">
       <div style="font-size:32px;margin-bottom:12px">📅</div>
       <div style="font-size:15px;font-weight:600;margin-bottom:6px">No months yet</div>
@@ -482,6 +709,7 @@ function switchTab(name, save=true) {
 
 let settingsOpen = false;
 function switchMainTab(name) {
+  if (migrationState || recoveryMode) return;
   if (name==='settings') {
     settingsOpen = !settingsOpen;
     if (settingsOpen) renderSettings();
@@ -563,28 +791,29 @@ function populateCatSelect() {
   if (!sel) return;
   const m = months[activeMonth];
   sel.innerHTML = '<option value="">Select category…</option>';
-  m.categories.forEach(c=>{
+  m.categories.forEach((c,index)=>{
     const o = document.createElement('option');
-    o.value = c.id;
+    o.value = String(index);
     o.textContent = c.name;
     sel.appendChild(o);
   });
 }
 
 // ─── ADD EXPENSE ─────────────────────────────────────────────────
-function addExpense() {
+async function addExpense() {
   const m = months[activeMonth]; if(!m) return;
-  const catId = document.getElementById('catSel').value;
+  const catValue = document.getElementById('catSel').value;
+  const catIndex = catValue === '' ? NaN : Number(catValue);
   const desc  = document.getElementById('descIn').value.trim();
   const amt   = parseFloat(document.getElementById('amtIn').value);
-  const cat   = m.categories.find(c=>c.id===catId);
+  const cat   = Number.isInteger(catIndex) ? m.categories[catIndex] : null;
   if (!cat)       { showToast('Pick a category'); return; }
   if (!desc)      { showToast('Describe the expense'); return; }
   if (!amt||amt<=0){ showToast('Enter a valid amount'); return; }
   const d = new Date();
   const dateStr = d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
-  m.expenses.unshift({id:Date.now(),catId,cat:cat.name,desc,amt,date:dateStr});
-  saveAll(); updateStats();
+  m.expenses.unshift({id:Date.now(),catId:cat.id,cat:cat.name,desc,amt,date:dateStr});
+  await saveAll(); updateStats();
   if (currentTab==='cats') renderCats();
   if (currentTab==='log') renderLog();
   document.getElementById('catSel').value='';
@@ -593,27 +822,33 @@ function addExpense() {
   showToast('Added ✓');
 }
 
-function deleteExpense(id) {
+async function deleteExpenseAt(index) {
   const m = months[activeMonth]; if(!m) return;
+  if (!Number.isInteger(index) || index < 0 || index >= m.expenses.length) return;
   if (!confirm('Delete this expense?')) return;
-  m.expenses = m.expenses.filter(e=>e.id!==id);
-  saveAll(); updateStats();
+  m.expenses.splice(index,1);
+  await saveAll(); updateStats();
   if (currentTab==='cats') renderCats();
   if (currentTab==='log') renderLog();
   showToast('Deleted');
 }
 
-function clearMonth() {
+async function clearMonth() {
   const m = months[activeMonth]; if(!m) return;
   if (!confirm(`Clear all expenses for ${m.name}? Cannot be undone.`)) return;
   m.expenses = [];
-  saveAll(); updateStats(); renderLog();
+  await saveAll(); updateStats(); renderLog();
   showToast('Cleared');
 }
 
 // ─── CATEGORIES VIEW ─────────────────────────────────────────────
-function catSpent(expenses, catId, catName) {
-  return expenses.filter(e=>e.catId===catId||e.cat===catName).reduce((s,e)=>s+e.amt,0);
+function expenseMatchesCategory(expense, category, categories) {
+  const idMatches = categories.filter(c=>String(c.id)===String(category.id));
+  if (idMatches.length > 1) return expense.cat===category.name;
+  return String(expense.catId)===String(category.id)||expense.cat===category.name;
+}
+function catSpent(expenses, category, categories) {
+  return expenses.filter(e=>expenseMatchesCategory(e,category,categories)).reduce((s,e)=>s+e.amt,0);
 }
 function barColor(pct){ return pct<70?'var(--green)':pct<100?'var(--amber)':'var(--red)'; }
 
@@ -638,19 +873,20 @@ function renderCats() {
   }
 
   m.categories.forEach((c,ci)=>{
-    const spent = catSpent(m.expenses,c.id,c.name);
+    const spent = catSpent(m.expenses,c,m.categories);
     const p = c.budget>0?Math.min((spent/c.budget)*100,100):0;
     const col = barColor(p);
-    const exps = m.expenses.filter(e=>e.catId===c.id||e.cat===c.name);
+    const exps = m.expenses.map((e,expenseIndex)=>({e,expenseIndex}))
+      .filter(({e})=>expenseMatchesCategory(e,c,m.categories));
     const row = document.createElement('div');
-    row.className='cat-row'+(wasOpen.has(c.id)?' open':'');
-    row.dataset.catid=c.id;
+    row.className='cat-row'+(wasOpen.has(String(c.id))?' open':'');
+    row.dataset.catid=String(c.id);
     const expHTML = exps.length===0
       ?'<div class="exp-empty">No expenses yet</div>'
-      :exps.map(e=>`<div class="exp-item">
+      :exps.map(({e,expenseIndex})=>`<div class="exp-item">
         <div><div class="exp-desc">${e.desc}</div><div class="exp-date">${e.date}</div></div>
         <div class="exp-r"><span class="exp-amt">${fmt(e.amt)}</span>
-        <button class="del-btn" onclick="event.stopPropagation();deleteExpense(${e.id})">✕</button></div>
+        <button class="del-btn" onclick="event.stopPropagation();deleteExpenseAt(${expenseIndex})">✕</button></div>
       </div>`).join('');
     row.innerHTML=`
       <div class="cat-head">
@@ -689,7 +925,7 @@ function renderAnalytics() {
   const sparkDates=dateEntries.map(([date])=>`<div class="spark-date">${date.split(' ')[0]}</div>`).join('');
 
   // Bar chart
-  const catTotals=m.categories.map((c,i)=>({name:c.name,spent:catSpent(m.expenses,c.id,c.name),color:CAT_COLORS[i%CAT_COLORS.length]}))
+  const catTotals=m.categories.map((c,i)=>({name:c.name,spent:catSpent(m.expenses,c,m.categories),color:CAT_COLORS[i%CAT_COLORS.length]}))
     .filter(c=>c.spent>0).sort((a,b)=>b.spent-a.spent);
   const maxCat=Math.max(...catTotals.map(c=>c.spent),1);
   const barRows=catTotals.map(c=>`
@@ -701,7 +937,7 @@ function renderAnalytics() {
 
   // Over budget
   const overRows=m.categories.map(c=>{
-    const spent=catSpent(m.expenses,c.id,c.name);
+    const spent=catSpent(m.expenses,c,m.categories);
     const diff=spent-c.budget;
     const over=diff>0;
     return `<div class="over-item"><div class="over-name">${c.name}</div>
@@ -739,7 +975,7 @@ function renderHistory() {
     const totalSpent=m.expenses.reduce((s,e)=>s+e.amt,0);
     const pct=totalBudget>0?Math.min((totalSpent/totalBudget)*100,100):0;
     const col=pct<60?'var(--green)':pct<85?'var(--amber)':'var(--red)';
-    const topCats=[...m.categories].map(c=>({name:c.name,spent:catSpent(m.expenses,c.id,c.name)}))
+    const topCats=[...m.categories].map(c=>({name:c.name,spent:catSpent(m.expenses,c,m.categories)}))
       .filter(c=>c.spent>0).sort((a,b)=>b.spent-a.spent).slice(0,4);
     const chips=topCats.map(c=>`<span class="hist-cat-chip">${c.name.split(' ')[0]}: ${fmt(c.spent)}</span>`).join('');
     return `<div class="hist-month" onclick="selectMonth('${k}')">
@@ -758,14 +994,15 @@ function renderLog() {
   const m=months[activeMonth]; if(!m) return;
   const ll=document.getElementById('logList'); if(!ll) return;
   const q=(document.getElementById('searchIn')?.value||'').toLowerCase();
-  const filtered=m.expenses.filter(e=>!q||e.desc.toLowerCase().includes(q)||e.cat.toLowerCase().includes(q)||e.date.includes(q));
+  const filtered=m.expenses.map((e,expenseIndex)=>({e,expenseIndex}))
+    .filter(({e})=>!q||e.desc.toLowerCase().includes(q)||e.cat.toLowerCase().includes(q)||e.date.includes(q));
   if (filtered.length===0){ll.innerHTML='<div class="empty-state">No expenses found.</div>';return;}
-  ll.innerHTML=filtered.map(e=>`
+  ll.innerHTML=filtered.map(({e,expenseIndex})=>`
     <div class="log-item">
       <div><div class="log-cat">${e.cat}</div><div class="log-desc">${e.desc}</div><div class="log-date">${e.date}</div></div>
       <div class="log-r">
         <div class="log-amt">${fmt(e.amt)}</div>
-        <button class="del-btn" onclick="deleteExpense(${e.id})">✕</button>
+        <button class="del-btn" onclick="deleteExpenseAt(${expenseIndex})">✕</button>
       </div>
     </div>`).join('');
 }
@@ -775,7 +1012,17 @@ function renderSettings() {
   document.getElementById('headerTitle').textContent = 'Settings';
   document.getElementById('headerSub').textContent = 'Manage categories & data';
   const content = document.getElementById('mainContent');
+  const lastBackup = appSettings.lastBackupAt
+    ? `Last export started ${new Date(appSettings.lastBackupAt).toLocaleString()}. Verify that the downloaded file exists.`
+    : 'No full backup export has been recorded.';
+  const recoveryPoints = storageAdapter.listRecoveryPoints().slice(0, 5);
+  const recoveryHTML = recoveryPoints.length ? recoveryPoints.map(point => `
+    <div class="recovery-item">
+      <div class="recovery-meta"><div>${point.reason}</div><div>${point.createdAt ? new Date(point.createdAt).toLocaleString() : 'Unknown date'} · ${point.kind}</div></div>
+      ${point.recoverable ? `<button class="btn-outline btn-sm" onclick="recoverPoint('${encodeURIComponent(point.key)}')">Recover</button>` : ''}
+    </div>`).join('') : '<div class="recovery-meta">No recovery points are available yet.</div>';
   content.innerHTML=`
+    ${backupReminderHTML()}
     <div class="settings-section">
       <h3>
         <span>Global Template</span>
@@ -807,6 +1054,12 @@ function renderSettings() {
         <button class="btn-outline" onclick="exportJSON()">💾 Backup</button>
         <button class="btn-outline" onclick="importJSON()">📂 Restore</button>
       </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px">${lastBackup}</div>
+    </div>
+    <div class="settings-section">
+      <h3>Recovery Points</h3>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Previous revisions and pre-replacement snapshots. Recovering first preserves the current dataset as another snapshot.</div>
+      ${recoveryHTML}
     </div>
     <div class="danger-zone">
       <p>Permanently delete data. Cannot be undone.</p>
@@ -850,14 +1103,14 @@ function renderMonthCatList() {
 function dragStart(e,idx,scope) { dragSrcIdx={idx,scope}; e.currentTarget.classList.add('dragging'); }
 function dragOver(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
 function dragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
-function dropOn(e,toIdx,scope) {
+async function dropOn(e,toIdx,scope) {
   e.preventDefault();
   e.currentTarget.classList.remove('drag-over');
   if (!dragSrcIdx||dragSrcIdx.scope!==scope||dragSrcIdx.idx===toIdx) return;
   const arr = scope==='global'?globalCats:months[activeMonth].categories;
   const [item] = arr.splice(dragSrcIdx.idx,1);
   arr.splice(toIdx,0,item);
-  saveAll();
+  await saveAll();
   if (scope==='global') renderGlobalCatList(); else renderMonthCatList();
   dragSrcIdx=null;
 }
@@ -880,7 +1133,7 @@ function showEditCat(idx,isGlobal) {
   document.getElementById('editCatBudget').value=c.budget;
   document.getElementById('editCatModal').classList.add('show');
 }
-function saveEditCat() {
+async function saveEditCat() {
   const name=document.getElementById('editCatName').value.trim();
   const budget=parseFloat(document.getElementById('editCatBudget').value)||0;
   if (!name){showToast('Enter a name');return;}
@@ -893,15 +1146,15 @@ function saveEditCat() {
     arr[editCatId].budget=budget;
     showToast('Category updated ✓');
   }
-  saveAll(); closeModal('editCatModal');
+  await saveAll(); closeModal('editCatModal');
   if (editCatIsGlobal) renderGlobalCatList(); else renderMonthCatList();
   if (activeMonth) { populateCatSelect(); updateStats(); }
 }
-function deleteCat(idx,isGlobal) {
+async function deleteCat(idx,isGlobal) {
   const arr=isGlobal?globalCats:months[activeMonth].categories;
   if (!confirm(`Delete "${arr[idx].name}"?`)) return;
   arr.splice(idx,1);
-  saveAll();
+  await saveAll();
   if (isGlobal) renderGlobalCatList(); else renderMonthCatList();
   showToast('Category deleted');
 }
@@ -995,7 +1248,7 @@ function parseCatCSV(text) {
   return parsed;
 }
 
-function processCatImport() {
+async function processCatImport() {
   const target = document.getElementById('importCatTarget').value;
   if (target === 'month' && !activeMonth) {
     showToast('No active month selected');
@@ -1013,6 +1266,12 @@ function processCatImport() {
   const targetArray = target === 'global' ? globalCats : months[activeMonth].categories;
 
   if (mode === 'replace') {
+    try {
+      storageAdapter.snapshotCurrent(`before-${target}-category-replace`);
+    } catch (error) {
+      showStorageIssue(error.message);
+      return;
+    }
     targetArray.length = 0;
   }
 
@@ -1036,7 +1295,7 @@ function processCatImport() {
     }
   });
 
-  saveAll();
+  await saveAll();
   closeModal('importCatModal');
 
   if (target === 'global') {
@@ -1073,10 +1332,17 @@ function exportCSV() {
   dl('data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv), `budget-${activeMonth}.csv`);
   showToast('CSV downloaded ✓');
 }
-function exportJSON() {
-  const data={months,globalCats,exportedAt:new Date().toISOString()};
-  dl('data:application/json,'+encodeURIComponent(JSON.stringify(data,null,2)),'budget-backup.json');
-  showToast('Backup downloaded ✓');
+async function exportJSON() {
+  try {
+    const backup = storageAdapter.createBackup(currentData(), { kind: 'full-backup', revision: loadedRevision });
+    downloadJSON(backup, `taka-koi-gelo-backup-${new Date().toISOString().slice(0,10)}.json`);
+    appSettings.lastBackupAt = new Date().toISOString();
+    await saveAll();
+    if (settingsOpen) renderSettings();
+    showToast('Backup export started — verify the file ✓');
+  } catch (error) {
+    showStorageIssue(error.message);
+  }
 }
 function importJSON() {
   const inp=document.createElement('input');
@@ -1086,34 +1352,93 @@ function importJSON() {
     const r=new FileReader();
     r.onload=ev=>{
       try {
-        const data=JSON.parse(ev.target.result);
-        if (!data.months) throw new Error('Invalid');
-        if (!confirm('This will replace all current data. Continue?')) return;
-        months=data.months;
-        globalCats=data.globalCats||[];
-        activeMonth=Object.keys(months).sort()[0]||null;
-        saveAll(); renderMonthBar(); renderSettings();
-        showToast('Restored ✓');
-      } catch(err){ showToast('Invalid backup file'); }
+        pendingRestore = storageAdapter.inspectBackup(ev.target.result);
+        showRestorePreview();
+      } catch(error){
+        pendingRestore = null;
+        showStorageIssue(error.message || 'Invalid backup file');
+      }
     };
     r.readAsText(file);
   };
   inp.click();
 }
+
+function showRestorePreview() {
+  const content = document.getElementById('restorePreviewContent');
+  content.innerHTML = `<p style="font-size:12px;color:var(--muted2);line-height:1.5">The backup is valid. Review its contents before replacing the current dataset. A recovery snapshot of the current data will be created first.</p>
+    ${summaryHTML(pendingRestore.summary)}
+    <div style="font-size:11px;color:var(--muted2)">Source schema: ${pendingRestore.sourceVersion === 0 ? 'Legacy (unversioned)' : pendingRestore.sourceVersion}</div>
+    <div class="restore-warnings" id="restoreWarnings"></div>`;
+  const warnings = pendingRestore.validation.warnings;
+  document.getElementById('restoreWarnings').textContent = warnings.length ? `Warnings: ${warnings.join(' · ')}` : 'Validation passed with no warnings.';
+  document.getElementById('restorePreviewModal').classList.add('show');
+}
+
+function cancelRestorePreview() {
+  pendingRestore = null;
+  closeModal('restorePreviewModal');
+}
+
+async function confirmRestore() {
+  if (!pendingRestore) return;
+  try {
+    const result = recoveryMode
+      ? await storageAdapter.restoreDuringRecoveryExclusive(pendingRestore, recoveryState?.rawLegacy, recoveryState?.activePointer)
+      : await storageAdapter.restoreExclusive(pendingRestore, loadedRevision);
+    pendingRestore = null;
+    recoveryMode = false;
+    recoveryState = null;
+    closeModal('restorePreviewModal');
+    loadEnvelope(result.envelope);
+    document.getElementById('monthBar').style.display = '';
+    settingsOpen = false;
+    renderMonthBar();
+    if (activeMonth) renderMonth(); else renderEmpty();
+    showToast('Backup restored and verified ✓');
+  } catch (error) {
+    showStorageIssue(error.message);
+  }
+}
+
+async function recoverPoint(encodedKey) {
+  if (!confirm('Recover this saved dataset? The current dataset will be preserved as another recovery snapshot first.')) return;
+  try {
+    const result = await storageAdapter.recoverExclusive(decodeURIComponent(encodedKey), loadedRevision);
+    loadEnvelope(result.envelope);
+    settingsOpen = false;
+    renderMonthBar();
+    if (activeMonth) renderMonth(); else renderEmpty();
+    showToast('Recovery point activated ✓');
+  } catch (error) {
+    showStorageIssue(error.message);
+  }
+}
+
+function downloadJSON(value,name) {
+  const blob = new Blob([JSON.stringify(value,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
 function dl(href,name){const a=document.createElement('a');a.href=href;a.download=name;a.click();}
 
 // ─── DELETE OPS ──────────────────────────────────────────────────
-function deleteMonth(key) {
+async function deleteMonth(key) {
   if (!confirm(`Delete ${months[key]?.name} and all its data?`)) return;
   delete months[key];
-  if (activeMonth===key) activeMonth=Object.keys(months).sort()[0]||null;
-  saveAll(); renderMonthBar(); renderSettings();
+  if (activeMonth===key) {
+    activeMonth=Object.keys(months).sort()[0]||null;
+    storedActiveMonth=activeMonth;
+  }
+  await saveAll(); renderMonthBar(); renderSettings();
   showToast('Month deleted');
 }
-function nukeAll() {
+async function nukeAll() {
   if (!confirm('Delete ALL months and data? This cannot be undone.')) return;
-  months={}; activeMonth=null;
-  saveAll(); renderMonthBar(); renderEmpty();
+  months={}; activeMonth=null; storedActiveMonth=null;
+  await saveAll(); renderMonthBar(); renderEmpty();
   document.getElementById('headerTitle').textContent='Budget Tracker';
   document.getElementById('headerSub').textContent='Select a month';
   showToast('All data cleared');
@@ -1137,19 +1462,37 @@ document.addEventListener('keydown',e=>{
 });
 
 // ─── SERVICE WORKER REGISTRATION & AUTO-UPDATE ────────────────────
+window.addEventListener('storage', event => {
+  if (event.key !== BudgetStorage.constants.ACTIVE_KEY || !loadedRevision || event.newValue === loadedRevision) return;
+  staleDataDetected = true;
+  showStorageIssue('A newer dataset was saved in another tab. This tab is now read-only until you export its unsaved copy or reload the latest data.');
+});
+
 if ('serviceWorker' in navigator) {
   let refreshing = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (refreshing) return;
     refreshing = true;
-    showToast('🎉 App updated to latest version!');
-    setTimeout(() => window.location.reload(), 1200);
+    window.location.reload();
   });
 
   const registerSW = () => {
     navigator.serviceWorker.register('./sw.js')
       .then(reg => {
         console.log('SW registered:', reg.scope);
+        const offerUpdate = worker => {
+          if (!worker) return;
+          const shouldUpdate = confirm('A new app version is ready. Update now? Save or export any unfinished entry first.');
+          if (shouldUpdate) worker.postMessage({type:'SKIP_WAITING'});
+        };
+        if (reg.waiting) offerUpdate(reg.waiting);
+        reg.addEventListener('updatefound', () => {
+          const worker = reg.installing;
+          if (!worker) return;
+          worker.addEventListener('statechange', () => {
+            if (worker.state === 'installed' && navigator.serviceWorker.controller) offerUpdate(worker);
+          });
+        });
         if (navigator.onLine) {
           reg.update().catch(() => {});
         }

@@ -19,6 +19,7 @@ All budget data stays in your browser's local storage. After the app shell has b
 - **Data portability** — export expenses or categories as CSV, and back up or restore the full application state as JSON.
 - **Installable PWA** — add the tracker to a phone or desktop home screen for a standalone app experience.
 - **Offline support** — a service worker caches the application shell and automatically activates updated versions.
+- **Concurrent-tab protection** — browser writes use an origin-wide Web Lock so simultaneous tabs cannot silently overwrite one another.
 - **Responsive dark interface** — optimized for mobile screens while remaining usable on desktop.
 
 ## Getting Started
@@ -71,7 +72,7 @@ Budget data is stored locally in the current browser using `localStorage`; it is
 - Uninstalling the PWA may remove its local data, depending on the browser and operating system.
 - JSON backups are the safest way to move data or protect it before clearing browser storage.
 
-Restoring a JSON backup replaces the application's current months and category template after confirmation.
+Restoring a JSON backup first validates and previews its contents. After confirmation, the app snapshots the current dataset and activates the verified replacement. Legacy unversioned backups remain supported; malformed backups and unknown future schema versions are rejected without changing current data.
 
 ## Installing as an App
 
@@ -81,7 +82,7 @@ When hosted on HTTPS (or opened on `localhost`), use the browser's **Install app
 
 Deploy all files in this repository together on any static host, including GitHub Pages, Netlify, Cloudflare Pages, or a conventional web server. HTTPS is required in production for service-worker and installation support.
 
-The `_headers` file disables caching for `sw.js` and `manifest.json` on hosting providers that support this configuration, helping clients discover application updates promptly.
+The `_headers` file asks supported hosting providers to revalidate the app entry point, storage adapter, service worker, and manifest so clients can discover compatible application updates promptly.
 
 When changing cached assets, update `CACHE_NAME` in `sw.js` so previously installed copies refresh their cache.
 
@@ -90,9 +91,19 @@ When changing cached assets, update `CACHE_NAME` in `sw.js` so previously instal
 ```text
 .
 ├── index.html              # Interface, styles, state, and application logic
+├── storage.js              # Versioned storage, validation, migration, and recovery
 ├── manifest.json           # PWA metadata and icon definitions
 ├── sw.js                   # Offline cache and update behavior
 ├── _headers                # Cache-control rules for supported static hosts
+├── docs/
+│   ├── roadmap.md          # Product phases and release gates
+│   ├── implementation-status.md # Living implementation and verification log
+│   └── phase-0-test-report.md    # Jest/Playwright results and release findings
+├── tests/
+│   ├── storage.test.js     # Dependency-free storage safety tests
+│   └── phase0-storage.jest.test.js # Jest storage and adversarial contracts
+├── e2e/
+│   └── phase0.spec.js      # Playwright browser workflows
 ├── favicon.png             # Browser favicon
 ├── apple-touch-icon.png    # iOS home-screen icon
 ├── icon-192.png            # PWA icon
@@ -107,8 +118,22 @@ When changing cached assets, update `CACHE_NAME` in `sw.js` so previously instal
 - Vanilla JavaScript
 - Web App Manifest
 - Service Worker and Cache API
+- Web Locks API
 - Browser `localStorage`
+
+## Testing
+
+Install the test dependencies, then run all storage and browser tests:
+
+```bash
+npm install
+npm test
+```
+
+Individual suites are available through `npm run test:legacy`, `npm run test:jest`, and `npm run test:playwright`. The Playwright configuration uses the installed Google Chrome channel on this macOS 12 ARM64 environment.
+
+The current implementation status and recommended next step are documented in [`docs/implementation-status.md`](docs/implementation-status.md). Detailed Phase 0 evidence and release blockers are in [`docs/phase-0-test-report.md`](docs/phase-0-test-report.md).
 
 ## Browser Support
 
-Use a current version of Chrome, Edge, Firefox, or Safari. PWA installation behavior varies by browser and operating system, but the core budget tracker works as a standard responsive web application wherever modern JavaScript and `localStorage` are supported.
+Use a current version of Chrome, Edge, Firefox, or Safari with the Web Locks API. PWA installation behavior varies by browser and operating system. If exclusive locking is unavailable, the app fails closed instead of performing potentially unsafe writes and offers recovery guidance.

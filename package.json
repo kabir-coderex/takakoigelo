@@ -1,0 +1,16 @@
+{
+  "name": "taka-koi-gelo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Offline-first personal budget tracker",
+  "scripts": {
+    "test": "npm run test:legacy && npm run test:jest && npm run test:playwright",
+    "test:legacy": "node tests/storage.test.js",
+    "test:jest": "jest --runInBand",
+    "test:playwright": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "jest": "^30.5.2"
+  }
+}

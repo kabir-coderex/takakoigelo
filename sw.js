@@ -1,7 +1,9 @@
-const CACHE_NAME = 'budget-tracker-v3';
+const CACHE_NAME = 'budget-tracker-v5';
+const CACHE_PREFIX = 'budget-tracker-';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
+  './storage.js',
   './manifest.json',
   './favicon.png',
   './apple-touch-icon.png',
@@ -12,7 +14,6 @@ const ASSETS_TO_CACHE = [
 
 // Install: Pre-cache app shell safely without blocking on single image failure
 self.addEventListener('install', (event) => {
-  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return Promise.allSettled(
@@ -24,13 +25,17 @@ self.addEventListener('install', (event) => {
   );
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
 // Activate: Take control immediately & delete old cache versions
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames
-          .filter((name) => name !== CACHE_NAME)
+          .filter((name) => name.startsWith(CACHE_PREFIX) && name !== CACHE_NAME)
           .map((name) => {
             console.log('[SW] Deleting old cache:', name);
             return caches.delete(name);

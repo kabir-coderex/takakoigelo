@@ -58,7 +58,7 @@ test.describe('Phase 1 reliable transaction entry', () => {
     await expect(page.locator('#toast')).toContainText('Added');
 
     const data = await activeData(page);
-    expect(data.months['2026-10'].expenses[0]).toEqual(expect.objectContaining({
+    expect(data.months['2026-10'].budgets['workspace-existing'].expenses[0]).toEqual(expect.objectContaining({
       desc: 'Tea & <b>snack</b>', amt: 25.5, date: '2026-10-12'
     }));
   });
@@ -76,8 +76,8 @@ test.describe('Phase 1 reliable transaction entry', () => {
     await page.getByRole('button', { name: 'Save', exact: true }).click();
 
     const data = await activeData(page);
-    expect(data.months['2026-10'].expenses).toHaveLength(0);
-    expect(data.months['2026-11'].expenses).toEqual([
+    expect(data.months['2026-10'].budgets['workspace-existing'].expenses).toHaveLength(0);
+    expect(data.months['2026-11'].budgets['workspace-existing'].expenses).toEqual([
       expect.objectContaining({ desc: 'Moved meal', amt: 150, date: '2026-11-03', catId: 'food-nov' })
     ]);
   });
@@ -90,22 +90,23 @@ test.describe('Phase 1 reliable transaction entry', () => {
     await page.locator('.log-item').getByRole('button', { name: '✕' }).click();
     await expect(page.locator('#toast')).toContainText('Moved to trash');
     let data = await activeData(page);
-    expect(data.months['2026-10'].expenses).toHaveLength(0);
+    expect(data.months['2026-10'].budgets['workspace-existing'].expenses).toHaveLength(0);
     expect(data.settings.transactionTrash).toHaveLength(1);
 
     await page.locator('#toast').getByRole('button', { name: 'Undo' }).click();
     await expect(page.locator('#toast')).toContainText('Expense restored');
     data = await activeData(page);
-    expect(data.months['2026-10'].expenses).toHaveLength(1);
+    expect(data.months['2026-10'].budgets['workspace-existing'].expenses).toHaveLength(1);
     expect(data.settings.transactionTrash).toHaveLength(0);
 
     await page.locator('#settingsBtn').click();
     const monthCategory = page.locator('#monthCatList .cat-mgmt-item').first();
     page.once('dialog', dialog => dialog.accept());
     await monthCategory.locator('.del-cat-btn').click();
+    await expect(page.locator('#toast')).toContainText('Category archived');
     data = await activeData(page);
-    expect(data.months['2026-10'].categories[0].archived).toBe(true);
-    expect(data.months['2026-10'].expenses).toHaveLength(1);
+    expect(data.months['2026-10'].budgets['workspace-existing'].categories[0].archived).toBe(true);
+    expect(data.months['2026-10'].budgets['workspace-existing'].expenses).toHaveLength(1);
   });
 
   test('legacy date conflicts stay preserved and visibly require review', async ({ page }) => {
@@ -125,7 +126,7 @@ test.describe('Phase 1 reliable transaction entry', () => {
     await page.getByRole('button', { name: 'Log', exact: true }).click();
     await expect(page.getByText('08 Sep · review date', { exact: true })).toBeVisible();
     const data = await activeData(page);
-    expect(data.months['2026-10'].expenses[0]).toEqual(expect.objectContaining({ date: null, legacyDate: '08 Sep' }));
+    expect(data.months['2026-10'].budgets['workspace-existing'].expenses[0]).toEqual(expect.objectContaining({ date: null, legacyDate: '08 Sep' }));
   });
 
   test('replacing monthly categories retains referenced categories and their expenses', async ({ page }) => {
@@ -139,8 +140,8 @@ test.describe('Phase 1 reliable transaction entry', () => {
     await expect(page.locator('#toast')).toContainText('Imported');
 
     const data = await activeData(page);
-    expect(data.months['2026-10'].expenses).toHaveLength(1);
-    expect(data.months['2026-10'].categories).toEqual(expect.arrayContaining([
+    expect(data.months['2026-10'].budgets['workspace-existing'].expenses).toHaveLength(1);
+    expect(data.months['2026-10'].budgets['workspace-existing'].categories).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'food', archived: true }),
       expect.objectContaining({ name: 'Travel', archived: false })
     ]));

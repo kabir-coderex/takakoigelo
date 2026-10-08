@@ -11,7 +11,7 @@ This is the living delivery record for the product roadmap. Update it after ever
 | --- | --- | --- |
 | 0. Recovery and migration foundation | Release candidate | All automated gates pass; real-data preview verification remains the production release gate |
 | 1. Reliable transaction entry | Release candidate | Editable full-date expenses, safe rendering, category archival/import protection, and recoverable deletion |
-| 2. Multiple budget workspaces | Not started | Independent Family/Personal-style workspaces and an all-workspaces view |
+| 2. Multiple budget workspaces | Release candidate | Independent named workspaces, workspace templates/months, All Workspaces overview, and safe transaction moves |
 | 3. Wallets, income, and transfers | Not started | Shared wallet ledger, balances, income, transfers, and fees |
 | 4. Unified reports and daily-use polish | Not started | Ledger-based filters, exports, accessibility, and offline/update hardening |
 | 5. Planning features | Not started | Recurring entries, goals, debt, rollover, and comparisons |
@@ -178,11 +178,73 @@ The completed run includes 12 dependency-free storage checks, 38 passing Jest ca
 
 Run the Phase 1 real-data preview and manual mobile/accessibility checks. After both Phase 0 and Phase 1 release gates pass in the daily-use environment, begin Phase 2 with the Existing Budget workspace migration.
 
-## Suggested next step
+## Phase 2 — Multiple budget workspaces
+
+Implementation date: 8 October 2026
+Code status: Complete
+Release status: Ready for isolated real-data preview; see [`phase-2-test-report.md`](./phase-2-test-report.md)
+
+### Implementation brief
+
+Phase 2 introduces named budget workspaces without duplicating the transaction ledger. A one-time `phase2Version` migration creates one workspace named **Existing Budget**, copies the existing global category template into that workspace, and moves each month’s categories and expenses into that workspace’s monthly budget. The adapter snapshots the complete Phase 1 dataset before activation and compares all counts and totals before and after migration.
+
+Monthly data now contains workspace-keyed budgets. Each budget owns its categories, planned amounts, and expenses, while workspace records own their independent future-month templates. The All Workspaces view aggregates each workspace budget once.
+
+### Delivered
+
+- Added create, rename, switch, archive, and restore controls for named workspaces.
+- Added independent monthly categories, budgets, expenses, and templates for Family/Personal-style use.
+- Added a persistent workspace switcher and an All Workspaces monthly overview.
+- Defaulted new expense entry to the selected workspace.
+- Added workspace-aware expense editing and explicit moves between workspaces with destination category reassignment.
+- Copied a workspace’s categories from its latest earlier month only; future months are never used. The workspace template is used when no earlier budget exists.
+- Allowed identical category names in different workspaces without ID or reporting collisions.
+- Kept archived workspaces, templates, monthly budgets, and transactions in storage, combined history, recovery, and backups.
+- Migrated all pre-Phase-2 records into **Existing Budget** and retained the original global template as migration metadata as well as the workspace template.
+- Extended transaction trash with source workspace identity so restores return to the correct monthly budget.
+- Extended expense CSV export with the selected workspace name.
+- Bumped the application-shell cache so installed copies discover the coordinated Phase 2 update.
+
+### Data migration and compatibility
+
+Dataset evolution is tracked by `settings.phase2Version: 1`; the outer storage/backup envelope remains schema version 1 because the new workspace structures are backward-compatible within the existing normalization pipeline. Legacy, Phase 0, and Phase 1 backups are normalized through Phase 1 date handling and then mapped into **Existing Budget**.
+
+The migration removes legacy `categories` and `expenses` fields from each active month only after copying them into `month.budgets.workspace-existing`. IDs, descriptions, amounts, category snapshots, ordering, dates, month membership, active month, and totals remain unchanged. Re-running normalization recognizes the Phase 2 marker and does not create another workspace or duplicate expenses.
+
+### Verification completed
+
+Run the complete suite with:
+
+```bash
+npm test
+```
+
+The completed run includes 12 dependency-free storage checks, 42 passing Jest cases, and 21 passing Playwright browser workflows. Phase 2 coverage verifies exact Existing Budget mapping, idempotence, independent same-named categories, combined totals, archived history, workspace CRUD, earlier-month-only copying, All Workspaces reporting, and reassigned transaction moves while retaining all Phase 0 and Phase 1 regressions.
+
+### Manual release checks still required
+
+- Migrate a fresh copy of real production data and compare every month/category/transaction count and total inside **Existing Budget**.
+- Confirm the migrated global template appears only as the Existing Budget template and no old transaction appears in another workspace.
+- Exercise workspace creation, rename, switching, archive/restore, templates, month creation, All Workspaces totals, and cross-workspace moves on supported mobile browsers.
+- Verify backup/restore and recovery preserve archived workspaces, independent templates, transaction trash, and selected workspace.
+- Complete the outstanding Phase 0 and Phase 1 real-data, browser, accessibility, and installed-PWA checks before updating the daily-use origin.
+
+### Known boundaries
+
+- Workspace budgets are plans only; they do not move money. Wallet balances arrive in Phase 3.
+- A transaction move requires an existing destination monthly budget and a valid destination category.
+- Archived workspaces are hidden from the normal switcher but remain visible in All Workspaces for months containing their budgets and can be restored in Settings.
+- The retained `globalCats` field is legacy migration metadata; active templates live on workspace records.
+
+### Suggested next step
+
+Run the Phase 2 real-data preview and manual mobile/accessibility checks. After the release gates pass, begin Phase 3 with shared wallets, income, transfers, and wallet-unassigned handling for every historical expense.
+
+## Overall suggested next step
 
 Complete the final real-data check on an isolated preview origin using a fresh copy of the production backup. Compare counts, IDs, dates, ordering, and totals; then exercise recovery before updating the existing production origin.
 
-Complete the Phase 1 real-data preview and manual release checks. Then begin Phase 2 by mapping all existing records into one **Existing Budget** workspace without duplicating transactions.
+Complete the Phase 2 real-data preview and manual release checks. Then begin Phase 3 without assigning historical expenses to wallets or deducting them from newly entered balances.
 
 ## Update template for the next phase
 

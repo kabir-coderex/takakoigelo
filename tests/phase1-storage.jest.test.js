@@ -68,10 +68,10 @@ describe('Phase 1 date normalization', () => {
 
     const reopened = new BudgetStorage.Adapter(storage).bootstrap();
     expect(reopened.envelope.revision).not.toBe(saved.envelope.revision);
-    expect(reopened.envelope.metadata.kind).toBe('phase-1-normalization');
-    expect(reopened.envelope.data.months['2026-10'].expenses[0].date).toBe('2026-10-02');
+    expect(reopened.envelope.metadata.kind).toBe('phase-2-workspace-migration');
+    expect(reopened.envelope.data.months['2026-10'].budgets['workspace-existing'].expenses[0].date).toBe('2026-10-02');
     expect(BudgetStorage.summarize(reopened.envelope.data).totalAmount).toBe(25);
     expect(new BudgetStorage.Adapter(storage).listRecoveryPoints())
-      .toEqual(expect.arrayContaining([expect.objectContaining({ reason: 'before-phase-1-normalization', recoverable: true })]));
+      .toEqual(expect.arrayContaining([expect.objectContaining({ reason: 'before-phase-2-workspace-migration', recoverable: true })]));
   });
 });

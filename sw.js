@@ -1,4 +1,4 @@
-const CACHE_NAME = 'budget-tracker-v6';
+const CACHE_NAME = 'budget-tracker-v7';
 const CACHE_PREFIX = 'budget-tracker-';
 const ASSETS_TO_CACHE = [
   './',

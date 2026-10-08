@@ -180,10 +180,10 @@ describe('Phase 0 legacy migration', () => {
     expect(backup.metadata.rawLegacy).toEqual(boot.rawLegacy);
 
     const migrated = adapter.migrateLegacy(boot.rawLegacy);
-    expect(migrated.envelope.data.months['2026-09'].expenses[0]).toEqual(expect.objectContaining({
+    expect(migrated.envelope.data.months['2026-09'].budgets['workspace-existing'].expenses[0]).toEqual(expect.objectContaining({
       id: 101, desc: 'Lunch <special>', amt: 250.5, date: '2026-09-08', legacyDate: '08 Sep'
     }));
-    expect(migrated.envelope.data.months['2026-10'].expenses[0].date).toBe('2026-10-01');
+    expect(migrated.envelope.data.months['2026-10'].budgets['workspace-existing'].expenses[0].date).toBe('2026-10-01');
     expect(migrated.envelope.metadata.validation.legacyFieldsPreserved).toBe(true);
     expect(migrated.envelope.metadata.validation.sourceSummary)
       .toEqual(migrated.envelope.metadata.validation.destinationSummary);
@@ -254,7 +254,7 @@ describe('Phase 0 backup versions and rejection', () => {
     const inspected = adapter.inspectBackup(JSON.stringify(backup));
     expect(inspected.sourceVersion).toBe(1);
     expect(inspected.metadata.purpose).toBe('jest');
-    expect(inspected.data.months['2026-09'].expenses[0].amt).toBe(250.5);
+    expect(inspected.data.months['2026-09'].budgets['workspace-existing'].expenses[0].amt).toBe(250.5);
     expect(inspected.summary.transactions).toBe(3);
   });
 
@@ -265,7 +265,10 @@ describe('Phase 0 backup versions and rejection', () => {
     expect(inspected.sourceVersion).toBe(0);
     expect(inspected.data.globalCats).toEqual([]);
     expect(inspected.data.activeMonth).toBe('2026-09');
-    expect(inspected.data.settings).toEqual({ lastBackupAt: null, phase1Version: 1, transactionTrash: [] });
+    expect(inspected.data.settings).toEqual({
+      lastBackupAt: null, phase1Version: 1, transactionTrash: [],
+      phase2Version: 1, activeWorkspaceId: 'workspace-existing'
+    });
   });
 
   test.each([

@@ -41,6 +41,9 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 .month-chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
 .month-chip:active:not(.active){border-color:var(--border2);color:var(--text)}
 .add-month-btn{background:none;border:1px dashed var(--border2);border-radius:99px;color:var(--muted);cursor:pointer;font-size:12px;padding:6px 14px;min-height:34px;white-space:nowrap;flex-shrink:0;transition:all .2s}
+.workspace-bar{background:var(--bg);border-bottom:1px solid var(--border);padding:8px 16px;display:flex;align-items:center;gap:7px;overflow-x:auto;scrollbar-width:none}
+.workspace-bar::-webkit-scrollbar{display:none}.workspace-chip{background:transparent;border:1px solid var(--border2);border-radius:8px;color:var(--muted2);cursor:pointer;font-size:11px;padding:6px 11px;min-height:32px;white-space:nowrap}.workspace-chip.active{background:var(--surface3);border-color:var(--accent);color:var(--accent)}
+.workspace-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:8px}.workspace-card-head{display:flex;justify-content:space-between;gap:8px;align-items:center}.workspace-card-name{font-size:13px;font-weight:600}.workspace-card-meta{font-size:11px;color:var(--muted2);margin-top:6px}
 
 .wrap{max-width:480px;margin:0 auto;padding:0 16px}
 
@@ -230,6 +233,7 @@ select option{background:#13161f}
 <div class="month-bar" id="monthBar">
   <button class="add-month-btn" onclick="showNewMonthModal()">+ New Month</button>
 </div>
+<div class="workspace-bar" id="workspaceBar"></div>
 
 <!-- Modal: Edit Expense -->
 <div class="modal-overlay" id="editExpenseModal">
@@ -238,11 +242,24 @@ select option{background:#13161f}
     <div class="frow"><input type="text" id="editExpenseDesc" placeholder="Description" /></div>
     <div class="frow"><input type="number" id="editExpenseAmount" placeholder="Amount (BDT)" min="0.01" step="any" /></div>
     <div class="frow"><input type="date" id="editExpenseDate" onchange="refreshEditExpenseCategories()" /></div>
+    <div class="frow"><select id="editExpenseWorkspace" onchange="refreshEditExpenseCategories()"></select></div>
     <div class="frow"><select id="editExpenseCategory"></select></div>
     <div id="editExpenseNote" style="font-size:11px;color:var(--amber);line-height:1.45"></div>
     <div class="modal-btns">
       <button class="btn-ghost" onclick="closeModal('editExpenseModal')">Cancel</button>
       <button class="btn btn-sm" onclick="saveExpenseEdit()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Workspace -->
+<div class="modal-overlay" id="workspaceModal">
+  <div class="modal">
+    <h3 id="workspaceModalTitle">New Workspace</h3>
+    <div class="frow"><input type="text" id="workspaceName" placeholder="Workspace name" /></div>
+    <div class="modal-btns">
+      <button class="btn-ghost" onclick="closeModal('workspaceModal')">Cancel</button>
+      <button class="btn btn-sm" onclick="saveWorkspace()">Save</button>
     </div>
   </div>
 </div>
@@ -287,7 +304,7 @@ select option{background:#13161f}
 
     <div class="frow">
       <select id="importCatTarget">
-        <option value="global">Global Template</option>
+        <option value="global">Workspace Template</option>
         <option value="month">Current Month</option>
       </select>
     </div>
@@ -347,6 +364,8 @@ const CAT_COLORS  = ["#6c8fff","#a78bfa","#34d399","#fbbf24","#f472b6","#38bdf8"
 // ─── STATE ───────────────────────────────────────────────────────
 let months = {};        // { [key]: { name, categories, expenses } }
 let globalCats = [];    // [{id,name,budget}]
+let workspaces = [];
+let activeWorkspaceId = 'workspace-existing';
 let activeMonth = null; // key like '2026-07'
 let storedActiveMonth = null; // Exact persisted value; may be invalid legacy data awaiting review
 let currentTab = 'add';
@@ -361,6 +380,7 @@ let recoveryMode = false;
 let recoveryState = null;
 let staleDataDetected = false;
 let editingExpense = null;
+let editingWorkspaceId = null;
 const storageAdapter = new BudgetStorage.Adapter(localStorage);
 
 // ─── INIT ────────────────────────────────────────────────────────
@@ -387,22 +407,27 @@ async function init() {
   }
   loadEnvelope(result.envelope);
   renderMonthBar();
+  renderWorkspaceBar();
   if (activeMonth) renderMonth();
   else renderEmpty();
 }
 
 function currentData() {
-  return { months, globalCats, activeMonth: storedActiveMonth, settings: appSettings };
+  appSettings.activeWorkspaceId = activeWorkspaceId;
+  return { months, globalCats, workspaces, activeMonth: storedActiveMonth, settings: appSettings };
 }
 
 function loadEnvelope(envelope) {
   const data = JSON.parse(JSON.stringify(envelope.data));
   months = data.months;
   globalCats = data.globalCats;
+  workspaces = data.workspaces || [];
   storedActiveMonth = data.activeMonth;
   activeMonth = storedActiveMonth;
   appSettings = data.settings || { lastBackupAt: null, phase1Version: 1, transactionTrash: [] };
   if (!Array.isArray(appSettings.transactionTrash)) appSettings.transactionTrash = [];
+  activeWorkspaceId = appSettings.activeWorkspaceId || workspaces.find(workspace=>!workspace.archived)?.id || 'all';
+  if(activeWorkspaceId!=='all'&&!workspaces.some(workspace=>workspace.id===activeWorkspaceId&&!workspace.archived)) activeWorkspaceId=workspaces.find(workspace=>!workspace.archived)?.id||'all';
   if (!activeMonth || !months[activeMonth]) activeMonth = Object.keys(months).sort()[0] || null;
   loadedRevision = envelope.revision;
   staleDataDetected = false;
@@ -436,7 +461,19 @@ function displayExpenseDate(expense) {
   if (BudgetStorage.isCalendarDate(expense.date)) return expense.date;
   return `${expense.legacyDate || 'Unknown date'} · review date`;
 }
-function activeCategories(month) { return (month?.categories || []).filter(category=>!category.archived); }
+function selectedWorkspace() { return workspaces.find(workspace=>workspace.id===activeWorkspaceId)||null; }
+function budgetFor(monthKey=activeMonth,workspaceId=activeWorkspaceId) { return months[monthKey]?.budgets?.[workspaceId]||null; }
+function currentBudget() { return activeWorkspaceId==='all'?null:budgetFor(activeMonth,activeWorkspaceId); }
+function templateCategories() { return selectedWorkspace()?.template||[]; }
+function workspaceName(workspaceId) { return workspaces.find(workspace=>workspace.id===workspaceId)?.name||'Unknown workspace'; }
+function createWorkspaceBudget(monthKey,workspaceId){
+  const month=months[monthKey];const workspace=workspaces.find(item=>item.id===workspaceId);if(!month||!workspace)return null;
+  if(!month.budgets)month.budgets={};if(month.budgets[workspaceId])return month.budgets[workspaceId];
+  const earlier=Object.keys(months).filter(key=>key<monthKey&&months[key].budgets?.[workspaceId]).sort();
+  const source=earlier.length?months[earlier[earlier.length-1]].budgets[workspaceId].categories:workspace.template;
+  month.budgets[workspaceId]={categories:deepCopy(source.filter(category=>!category.archived)),expenses:[]};
+  return month.budgets[workspaceId];
+}
 
 function showToast(msg) {
   const t = document.getElementById('toast');
@@ -471,6 +508,7 @@ function renderMigrationGate() {
   document.getElementById('headerTitle').textContent = 'Safe data upgrade';
   document.getElementById('headerSub').textContent = 'Backup required before migration';
   document.getElementById('monthBar').style.display = 'none';
+  document.getElementById('workspaceBar').style.display = 'none';
   document.getElementById('settingsBtn').disabled = true;
   document.getElementById('mainContent').innerHTML = `<div class="safety-screen">
     <div class="safety-card">
@@ -509,7 +547,9 @@ async function completeMigration() {
     migrationState = null;
     loadEnvelope(result.envelope);
     document.getElementById('monthBar').style.display = '';
+    document.getElementById('workspaceBar').style.display = '';
     renderMonthBar();
+    renderWorkspaceBar();
     if (activeMonth) renderMonth(); else renderEmpty();
     showToast('Data upgraded and verified ✓');
   } catch (error) {
@@ -522,6 +562,7 @@ function renderRecoveryScreen() {
   document.getElementById('headerTitle').textContent = 'Recovery required';
   document.getElementById('headerSub').textContent = 'Existing data was not modified';
   document.getElementById('monthBar').style.display = 'none';
+  document.getElementById('workspaceBar').style.display = 'none';
   document.getElementById('settingsBtn').disabled = true;
   document.getElementById('mainContent').innerHTML = `<div class="safety-screen">
     <div class="safety-card">
@@ -584,6 +625,7 @@ function reloadActiveData() {
     loadEnvelope(active.envelope);
     settingsOpen = false;
     renderMonthBar();
+    renderWorkspaceBar();
     if (activeMonth) renderMonth(); else renderEmpty();
   } catch (error) {
     showStorageIssue(error.message);
@@ -617,10 +659,28 @@ function renderMonthBar() {
   bar.appendChild(add);
 }
 
+function renderWorkspaceBar() {
+  const bar=document.getElementById('workspaceBar');if(!bar)return;
+  bar.replaceChildren();
+  const all=document.createElement('button');all.className='workspace-chip'+(activeWorkspaceId==='all'?' active':'');all.textContent='All Workspaces';all.onclick=()=>selectWorkspace('all');bar.appendChild(all);
+  workspaces.filter(workspace=>!workspace.archived).forEach(workspace=>{
+    const button=document.createElement('button');button.className='workspace-chip'+(workspace.id===activeWorkspaceId?' active':'');button.textContent=workspace.name;button.onclick=()=>selectWorkspace(workspace.id);bar.appendChild(button);
+  });
+  const add=document.createElement('button');add.className='add-month-btn';add.textContent='+ Workspace';add.onclick=()=>showWorkspaceModal();bar.appendChild(add);
+}
+
+async function selectWorkspace(workspaceId){
+  if(workspaceId!=='all'&&!workspaces.some(workspace=>workspace.id===workspaceId&&!workspace.archived))return;
+  activeWorkspaceId=workspaceId;appSettings.activeWorkspaceId=workspaceId;settingsOpen=false;
+  if(workspaceId!=='all'&&activeMonth&&!budgetFor(activeMonth,workspaceId))createWorkspaceBudget(activeMonth,workspaceId);
+  await saveAll();renderWorkspaceBar();if(activeMonth)renderMonth();else renderEmpty();
+}
+
 async function selectMonth(key) {
   activeMonth = key;
   storedActiveMonth = key;
   settingsOpen = false;
+  if(activeWorkspaceId!=='all'&&!budgetFor(key,activeWorkspaceId))createWorkspaceBudget(key,activeWorkspaceId);
   await saveAll();
   renderMonthBar();
   renderMonth();
@@ -638,10 +698,7 @@ function updateNewMonthNote() {
   const val = document.getElementById('newMonthInput').value;
   const note = document.getElementById('newMonthNote');
   if (!val) { note.textContent=''; return; }
-  const keys = Object.keys(months).sort();
-  const lastKey = keys[keys.length-1];
-  if (lastKey) note.textContent = `Will copy categories & budgets from ${months[lastKey].name}`;
-  else note.textContent = globalCats.length ? 'Will copy global categories' : 'Will start with no categories';
+  note.textContent = 'Each workspace copies its latest earlier budget, or its own template when none exists.';
 }
 async function createMonth() {
   const val = document.getElementById('newMonthInput').value;
@@ -649,12 +706,12 @@ async function createMonth() {
   if (months[val]) { showToast('Month already exists'); closeModal('newMonthModal'); selectMonth(val); return; }
   const [yr,mo] = val.split('-').map(Number);
   const name = new Date(yr,mo-1,1).toLocaleString('en-US',{month:'long',year:'numeric'});
-  // Copy cats from last month or global
-  const keys = Object.keys(months).sort();
-  const srcCats = keys.length
-    ? deepCopy(months[keys[keys.length-1]].categories.filter(category=>!category.archived))
-    : deepCopy(globalCats.filter(category=>!category.archived));
-  months[val] = { name, categories: srcCats, expenses: [] };
+  months[val] = { name, budgets: {} };
+  workspaces.filter(workspace=>!workspace.archived).forEach(workspace=>{
+    const earlier=Object.keys(months).filter(key=>key<val&&months[key].budgets?.[workspace.id]).sort();
+    const source=earlier.length?months[earlier[earlier.length-1]].budgets[workspace.id].categories:workspace.template;
+    months[val].budgets[workspace.id]={categories:deepCopy(source.filter(category=>!category.archived)),expenses:[]};
+  });
   await saveAll();
   closeModal('newMonthModal');
   renderMonthBar();
@@ -663,10 +720,29 @@ async function createMonth() {
 }
 
 // ─── MONTH RENDER ────────────────────────────────────────────────
+function renderAllWorkspaces(){
+  const month=months[activeMonth];if(!month)return;
+  document.getElementById('headerTitle').textContent=month.name;
+  const rows=workspaces.map(workspace=>{
+    const budget=budgetFor(activeMonth,workspace.id);if(!budget)return null;
+    const planned=budget.categories.reduce((sum,category)=>sum+category.budget,0);
+    const spent=budget.expenses.reduce((sum,expense)=>sum+expense.amt,0);
+    return {workspace,planned,spent,count:budget.expenses.length};
+  }).filter(Boolean);
+  const planned=rows.reduce((sum,row)=>sum+row.planned,0);const spent=rows.reduce((sum,row)=>sum+row.spent,0);
+  document.getElementById('headerSub').textContent=`All workspaces · ${fmt(spent)} spent`;
+  document.getElementById('mainContent').innerHTML=`${backupReminderHTML()}
+    <div class="hero"><div class="hero-label">Combined remaining</div><div class="hero-amount ${spent>planned?'danger':'safe'}">${fmt(planned-spent)}</div><div class="hero-sub">${fmt(spent)} spent of ${fmt(planned)} · ${rows.reduce((sum,row)=>sum+row.count,0)} transactions</div></div>
+    <div class="sec-label">Workspace overview</div>
+    ${rows.map(row=>`<div class="workspace-card"><div class="workspace-card-head"><div class="workspace-card-name">${h(row.workspace.name)}${row.workspace.archived?'<span class="archived-badge">Archived</span>':''}</div><div class="cat-spent">${fmt(row.spent)}</div></div><div class="workspace-card-meta">${fmt(row.planned)} planned · ${row.count} transactions · ${fmt(row.planned-row.spent)} remaining</div></div>`).join('')||'<div class="empty-state">No workspace budgets in this month.</div>'}`;
+}
+
 function renderMonth() {
-  const m = months[activeMonth];
-  if (!m) return;
-  document.getElementById('headerTitle').textContent = m.name;
+  const month = months[activeMonth];
+  if (!month) return;
+  if(activeWorkspaceId==='all'){renderAllWorkspaces();return;}
+  const m = currentBudget()||{categories:[],expenses:[]};
+  document.getElementById('headerTitle').textContent = `${month.name} · ${selectedWorkspace()?.name||''}`;
   const totalBudget = m.categories.reduce((s,c)=>s+c.budget,0);
   document.getElementById('headerSub').textContent = `Budget: ${fmt(totalBudget)}`;
 
@@ -715,8 +791,8 @@ function renderMonth() {
       </div>
       <div id="logList"></div>
       <div class="danger-zone">
-        <p>Move all expenses for ${h(m.name)} to recoverable trash.</p>
-        <button class="btn-danger" onclick="clearMonth()">Clear ${h(m.name)}</button>
+        <p>Move all ${h(selectedWorkspace()?.name||'workspace')} expenses for ${h(month.name)} to recoverable trash.</p>
+        <button class="btn-danger" onclick="clearMonth()">Clear workspace expenses</button>
       </div>
     </div>
   `;
@@ -767,7 +843,7 @@ function switchMainTab(name) {
 
 // ─── STATS ───────────────────────────────────────────────────────
 function updateStats() {
-  const m = months[activeMonth];
+  const m = currentBudget();
   if (!m) return;
   const totalBudget = m.categories.reduce((s,c)=>s+c.budget,0);
   const totalSpent  = m.expenses.reduce((s,e)=>s+e.amt,0);
@@ -836,7 +912,7 @@ function updateStats() {
 function populateCatSelect() {
   const sel = document.getElementById('catSel');
   if (!sel) return;
-  const m = months[activeMonth];
+  const m = currentBudget(); if(!m)return;
   sel.innerHTML = '<option value="">Select category…</option>';
   m.categories.forEach((c,index)=>{
     if (c.archived) return;
@@ -855,7 +931,7 @@ function defaultDateForMonth(monthKey) {
 
 // ─── ADD EXPENSE ─────────────────────────────────────────────────
 async function addExpense() {
-  const m = months[activeMonth]; if(!m) return;
+  const m = currentBudget(); if(!m||activeWorkspaceId==='all') return;
   const catValue = document.getElementById('catSel').value;
   const catIndex = catValue === '' ? NaN : Number(catValue);
   const desc  = document.getElementById('descIn').value.trim();
@@ -878,12 +954,12 @@ async function addExpense() {
 }
 
 async function deleteExpenseAt(index) {
-  const m = months[activeMonth]; if(!m) return;
+  const m = currentBudget(); if(!m) return;
   if (!Number.isInteger(index) || index < 0 || index >= m.expenses.length) return;
   if (!confirm('Delete this expense?')) return;
   const [expense] = m.expenses.splice(index,1);
   const trashId = `trash-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
-  appSettings.transactionTrash.unshift({ id:trashId, sourceMonth:activeMonth, sourceIndex:index, deletedAt:new Date().toISOString(), expense });
+  appSettings.transactionTrash.unshift({ id:trashId, sourceMonth:activeMonth, sourceWorkspaceId:activeWorkspaceId, sourceIndex:index, deletedAt:new Date().toISOString(), expense });
   await saveAll(); updateStats();
   if (currentTab==='cats') renderCats();
   if (currentTab==='log') renderLog();
@@ -891,25 +967,27 @@ async function deleteExpenseAt(index) {
 }
 
 async function clearMonth() {
-  const m = months[activeMonth]; if(!m) return;
+  const m = currentBudget(); if(!m) return;
   if (!m.expenses.length) { showToast('No expenses to clear'); return; }
   if (!confirm(`Move all expenses for ${m.name} to recoverable trash?`)) return;
   const deletedAt = new Date().toISOString();
   m.expenses.forEach((expense,index)=>appSettings.transactionTrash.unshift({
     id:`trash-${Date.now()}-${index}-${Math.random().toString(36).slice(2,7)}`,
-    sourceMonth:activeMonth, sourceIndex:index, deletedAt, expense
+    sourceMonth:activeMonth, sourceWorkspaceId:activeWorkspaceId, sourceIndex:index, deletedAt, expense
   }));
   m.expenses = [];
   await saveAll(); updateStats(); renderLog();
   showToast('Moved expenses to trash');
 }
 
-function showEditExpense(monthKey,index) {
-  const expense = months[monthKey]?.expenses[index]; if (!expense) return;
-  editingExpense = { sourceMonth:monthKey, index, originalCatId:expense.catId, originalCat:expense.cat };
+function showEditExpense(monthKey,index,workspaceId=activeWorkspaceId) {
+  const expense = budgetFor(monthKey,workspaceId)?.expenses[index]; if (!expense) return;
+  editingExpense = { sourceMonth:monthKey, sourceWorkspaceId:workspaceId, index, originalCatId:expense.catId, originalCat:expense.cat };
   document.getElementById('editExpenseDesc').value = expense.desc;
   document.getElementById('editExpenseAmount').value = expense.amt;
   document.getElementById('editExpenseDate').value = expense.date || '';
+  const workspaceSelect=document.getElementById('editExpenseWorkspace');workspaceSelect.replaceChildren();
+  workspaces.filter(workspace=>!workspace.archived||workspace.id===workspaceId).forEach(workspace=>{const option=document.createElement('option');option.value=workspace.id;option.textContent=workspace.name;if(workspace.id===workspaceId)option.selected=true;workspaceSelect.appendChild(option);});
   document.getElementById('editExpenseNote').textContent = expense.dateReview
     ? `${expense.dateReview.reason}. Original value: ${expense.legacyDate || 'empty'}. Choose a verified date to resolve it.` : '';
   refreshEditExpenseCategories();
@@ -920,15 +998,17 @@ function refreshEditExpenseCategories() {
   if (!editingExpense) return;
   const date = document.getElementById('editExpenseDate').value;
   const monthKey = BudgetStorage.isCalendarDate(date) ? date.slice(0,7) : editingExpense.sourceMonth;
+  const workspaceId=document.getElementById('editExpenseWorkspace').value||editingExpense.sourceWorkspaceId;
   const month = months[monthKey];
+  const budget=budgetFor(monthKey,workspaceId);
   const select = document.getElementById('editExpenseCategory');
   select.replaceChildren();
-  if (!month) {
+  if (!month||!budget) {
     const option = document.createElement('option'); option.value=''; option.textContent='Create the destination month first';
     select.appendChild(option); return;
   }
-  month.categories.forEach((category,index)=>{
-    const isOriginal = monthKey===editingExpense.sourceMonth && String(category.id)===String(editingExpense.originalCatId) && category.name===editingExpense.originalCat;
+  budget.categories.forEach((category,index)=>{
+    const isOriginal = monthKey===editingExpense.sourceMonth&&workspaceId===editingExpense.sourceWorkspaceId&&String(category.id)===String(editingExpense.originalCatId) && category.name===editingExpense.originalCat;
     if (category.archived && !isOriginal) return;
     const option = document.createElement('option'); option.value=String(index);
     option.textContent = category.name + (category.archived ? ' (archived)' : '');
@@ -939,7 +1019,7 @@ function refreshEditExpenseCategories() {
 
 async function saveExpenseEdit() {
   if (!editingExpense) return;
-  const source = months[editingExpense.sourceMonth];
+  const source = budgetFor(editingExpense.sourceMonth,editingExpense.sourceWorkspaceId);
   const expense = source?.expenses[editingExpense.index]; if (!expense) { showToast('Expense no longer exists'); return; }
   const desc = document.getElementById('editExpenseDesc').value.trim();
   const amount = Number(document.getElementById('editExpenseAmount').value);
@@ -948,16 +1028,19 @@ async function saveExpenseEdit() {
   if (!Number.isFinite(amount) || amount<=0) { showToast('Enter a finite positive amount'); return; }
   if (!BudgetStorage.isCalendarDate(date)) { showToast('Choose a valid full date'); return; }
   const destinationKey = date.slice(0,7);
-  const destination = months[destinationKey];
-  if (!destination) { showToast('Create the destination month first'); return; }
+  const destinationWorkspaceId=document.getElementById('editExpenseWorkspace').value;
+  const destinationMonth = months[destinationKey];
+  const destination=budgetFor(destinationKey,destinationWorkspaceId);
+  if (!destinationMonth||!destination) { showToast('Create the destination month and workspace budget first'); return; }
   const catIndex = Number(document.getElementById('editExpenseCategory').value);
   const category = Number.isInteger(catIndex) ? destination.categories[catIndex] : null;
   if (!category) { showToast('Choose a destination category'); return; }
-  if (destinationKey!==editingExpense.sourceMonth && !confirm(`Move this expense to ${destination.name}?`)) return;
+  const isMove=destinationKey!==editingExpense.sourceMonth||destinationWorkspaceId!==editingExpense.sourceWorkspaceId;
+  if (isMove && !confirm(`Move this expense to ${destinationMonth.name} · ${workspaceName(destinationWorkspaceId)}?`)) return;
 
   expense.desc=desc; expense.amt=amount; expense.date=date; expense.catId=category.id; expense.cat=category.name;
   delete expense.legacyDate; delete expense.dateReview;
-  if (destinationKey!==editingExpense.sourceMonth) {
+  if (isMove) {
     source.expenses.splice(editingExpense.index,1);
     destination.expenses.unshift(expense);
   }
@@ -967,18 +1050,18 @@ async function saveExpenseEdit() {
   if (currentTab==='analytics') renderAnalytics();
   if (currentTab==='history') renderHistory();
   if (currentTab==='log') renderLog();
-  showToast(destinationKey===activeMonth?'Expense updated ✓':'Expense moved ✓');
+  showToast(isMove?'Expense moved ✓':'Expense updated ✓');
 }
 
 async function restoreTrashItem(trashId) {
   const index=appSettings.transactionTrash.findIndex(item=>item.id===trashId); if(index<0) return;
   const item=appSettings.transactionTrash[index];
-  const month=months[item.sourceMonth];
-  if(!month){showToast('Restore the original month first');return;}
-  month.expenses.splice(Math.min(Math.max(item.sourceIndex,0),month.expenses.length),0,item.expense);
+  const month=months[item.sourceMonth];const budget=budgetFor(item.sourceMonth,item.sourceWorkspaceId);
+  if(!month||!budget){showToast('Restore the original month and workspace first');return;}
+  budget.expenses.splice(Math.min(Math.max(item.sourceIndex,0),budget.expenses.length),0,item.expense);
   appSettings.transactionTrash.splice(index,1);
   await saveAll();
-  if(activeMonth===item.sourceMonth){updateStats();if(currentTab==='cats')renderCats();if(currentTab==='log')renderLog();if(currentTab==='analytics')renderAnalytics();}
+  if(activeMonth===item.sourceMonth&&activeWorkspaceId===item.sourceWorkspaceId){updateStats();if(currentTab==='cats')renderCats();if(currentTab==='log')renderLog();if(currentTab==='analytics')renderAnalytics();}
   if(settingsOpen)renderSettings();
   showToast('Expense restored ✓');
 }
@@ -995,7 +1078,7 @@ function catSpent(expenses, category, categories) {
 function barColor(pct){ return pct<70?'var(--green)':pct<100?'var(--amber)':'var(--red)'; }
 
 function renderCats() {
-  const m = months[activeMonth]; if(!m) return;
+  const m = currentBudget(); if(!m) return;
   const cl = document.getElementById('catList'); if(!cl) return;
   const wasOpen = new Set([...cl.querySelectorAll('.cat-row.open')].map(r=>r.dataset.catid));
   cl.innerHTML='';
@@ -1045,7 +1128,7 @@ function renderCats() {
 
 // ─── ANALYTICS ───────────────────────────────────────────────────
 function renderAnalytics() {
-  const m = months[activeMonth]; if(!m) return;
+  const m = currentBudget(); if(!m) return;
   const grid = document.getElementById('anaGrid'); if(!grid) return;
   const totalBudget = m.categories.reduce((s,c)=>s+c.budget,0);
   const totalSpent  = m.expenses.reduce((s,e)=>s+e.amt,0);
@@ -1113,7 +1196,7 @@ function renderHistory() {
   const keys = Object.keys(months).sort().reverse();
   if (keys.length===0) { hc.innerHTML='<div class="empty-state">No months recorded yet.</div>'; return; }
   hc.innerHTML = keys.map((k,keyIndex)=>{
-    const m=months[k];
+    const month=months[k];const m=budgetFor(k,activeWorkspaceId)||{categories:[],expenses:[]};
     const totalBudget=m.categories.reduce((s,c)=>s+c.budget,0);
     const totalSpent=m.expenses.reduce((s,e)=>s+e.amt,0);
     const pct=totalBudget>0?Math.min((totalSpent/totalBudget)*100,100):0;
@@ -1123,7 +1206,7 @@ function renderHistory() {
     const chips=topCats.map(c=>`<span class="hist-cat-chip">${h(c.name.split(' ')[0])}: ${fmt(c.spent)}</span>`).join('');
     return `<div class="hist-month" data-month-index="${keyIndex}">
       <div class="hist-head">
-        <div class="hist-name">${h(m.name)}</div>
+        <div class="hist-name">${h(month.name)}</div>
         <div class="hist-spent" style="color:${col}">${fmt(totalSpent)} <span style="font-size:11px;color:var(--muted)">/ ${fmt(totalBudget)}</span></div>
       </div>
       <div class="hist-bar-bg"><div class="hist-bar" style="width:${pct}%;background:${col}"></div></div>
@@ -1137,7 +1220,7 @@ function renderHistory() {
 
 // ─── LOG ─────────────────────────────────────────────────────────
 function renderLog() {
-  const m=months[activeMonth]; if(!m) return;
+  const m=currentBudget(); if(!m) return;
   const ll=document.getElementById('logList'); if(!ll) return;
   const q=(document.getElementById('searchIn')?.value||'').toLowerCase();
   const filtered=m.expenses.map((e,expenseIndex)=>({e,expenseIndex}))
@@ -1170,14 +1253,18 @@ function renderSettings() {
     </div>`).join('') : '<div class="recovery-meta">No recovery points are available yet.</div>';
   const trashHTML = appSettings.transactionTrash.length ? appSettings.transactionTrash.map((item,itemIndex)=>`
     <div class="recovery-item">
-      <div class="recovery-meta"><div>${h(item.expense?.desc || 'Expense')} · ${fmt(item.expense?.amt || 0)}</div><div>${h(item.sourceMonth)} · deleted ${h(new Date(item.deletedAt).toLocaleString())}</div></div>
+      <div class="recovery-meta"><div>${h(item.expense?.desc || 'Expense')} · ${fmt(item.expense?.amt || 0)}</div><div>${h(item.sourceMonth)} · ${h(workspaceName(item.sourceWorkspaceId))} · deleted ${h(new Date(item.deletedAt).toLocaleString())}</div></div>
       <button class="btn-outline btn-sm" onclick="restoreTrashItem(appSettings.transactionTrash[${itemIndex}].id)">Restore</button>
     </div>`).join('') : '<div class="recovery-meta">Trash is empty.</div>';
   content.innerHTML=`
     ${backupReminderHTML()}
+    <div class="settings-section"><h3><span>Workspaces</span><button class="btn btn-sm" onclick="showWorkspaceModal()">+</button></h3>
+      ${workspaces.map((workspace,index)=>`<div class="cat-mgmt-item"><span class="cat-mgmt-name">${h(workspace.name)}${workspace.archived?'<span class="archived-badge">Archived</span>':''}</span><button class="edit-btn" onclick="showWorkspaceModal(${index})">✏</button><button class="${workspace.archived?'edit-btn':'del-cat-btn'}" onclick="toggleWorkspaceArchive(${index})">${workspace.archived?'↩':'✕'}</button></div>`).join('')}
+    </div>
+    ${activeWorkspaceId!=='all'?`
     <div class="settings-section">
       <h3>
-        <span>Global Template</span>
+        <span>${h(selectedWorkspace()?.name)} Template</span>
         <div style="display:flex;gap:6px">
           <button class="btn-sm btn-outline" onclick="showImportCatModal('global')">📥</button>
           <button class="btn btn-sm" onclick="showAddCatModal(true)">+</button>
@@ -1197,12 +1284,12 @@ function renderSettings() {
       </h3>
       <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Only this month</div>
       <div id="monthCatList"></div>
-    </div>`:''}
+    </div>`:''}`:''}
     <div class="settings-section">
       <h3>Data</h3>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        ${activeMonth?`<button class="btn-outline" onclick="exportCSV()">📄 Expenses CSV</button>`:''}
-        <button class="btn-outline" onclick="exportCatsCSV(true)">📄 Categories CSV</button>
+        ${activeMonth&&activeWorkspaceId!=='all'?`<button class="btn-outline" onclick="exportCSV()">📄 Expenses CSV</button>`:''}
+        ${activeWorkspaceId!=='all'?`<button class="btn-outline" onclick="exportCatsCSV(true)">📄 Categories CSV</button>`:''}
         <button class="btn-outline" onclick="exportJSON()">💾 Backup</button>
         <button class="btn-outline" onclick="importJSON()">📂 Restore</button>
       </div>
@@ -1225,13 +1312,13 @@ function renderSettings() {
         <button class="btn-danger" onclick="nukeAll()">Delete All</button>
       </div>
     </div>`;
-  renderGlobalCatList();
-  if (activeMonth) renderMonthCatList();
+  if(activeWorkspaceId!=='all')renderGlobalCatList();
+  if (activeMonth&&activeWorkspaceId!=='all') renderMonthCatList();
 }
 
 function renderGlobalCatList() {
   const el=document.getElementById('globalCatList'); if(!el) return;
-  el.innerHTML=globalCats.map((c,i)=>`
+  el.innerHTML=templateCategories().map((c,i)=>`
     <div class="cat-mgmt-item" draggable="true" data-idx="${i}" data-scope="global"
       ondragstart="dragStart(event,${i},'global')" ondragover="dragOver(event)" ondrop="dropOn(event,${i},'global')" ondragleave="dragLeave(event)">
       <span class="drag-handle">⠿</span>
@@ -1244,7 +1331,7 @@ function renderGlobalCatList() {
 
 function renderMonthCatList() {
   const el=document.getElementById('monthCatList'); if(!el) return;
-  const m=months[activeMonth]; if(!m) return;
+  const m=currentBudget(); if(!m) return;
   el.innerHTML=m.categories.map((c,i)=>`
     <div class="cat-mgmt-item" draggable="true" data-idx="${i}" data-scope="month"
       ondragstart="dragStart(event,${i},'month')" ondragover="dragOver(event)" ondrop="dropOn(event,${i},'month')" ondragleave="dragLeave(event)">
@@ -1257,6 +1344,35 @@ function renderMonthCatList() {
     </div>`).join('');
 }
 
+function showWorkspaceModal(index=null){
+  const workspace=Number.isInteger(index)?workspaces[index]:null;
+  editingWorkspaceId=workspace?.id||null;
+  document.getElementById('workspaceModalTitle').textContent=workspace?'Rename Workspace':'New Workspace';
+  document.getElementById('workspaceName').value=workspace?.name||'';
+  document.getElementById('workspaceModal').classList.add('show');
+}
+
+async function saveWorkspace(){
+  const name=document.getElementById('workspaceName').value.trim();if(!name){showToast('Enter a workspace name');return;}
+  if(editingWorkspaceId){
+    const workspace=workspaces.find(item=>item.id===editingWorkspaceId);if(!workspace)return;workspace.name=name;
+  }else{
+    const workspace={id:`workspace-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,name,archived:false,template:[]};
+    workspaces.push(workspace);
+    if(activeMonth)createWorkspaceBudget(activeMonth,workspace.id);
+    activeWorkspaceId=workspace.id;appSettings.activeWorkspaceId=workspace.id;
+  }
+  await saveAll();closeModal('workspaceModal');editingWorkspaceId=null;renderWorkspaceBar();renderSettings();showToast('Workspace saved ✓');
+}
+
+async function toggleWorkspaceArchive(index){
+  const workspace=workspaces[index];if(!workspace)return;
+  if(!workspace.archived&&!confirm(`Archive "${workspace.name}"? Historical budgets and expenses will remain available in All Workspaces and backups.`))return;
+  workspace.archived=!workspace.archived;
+  if(workspace.archived&&activeWorkspaceId===workspace.id){activeWorkspaceId=workspaces.find(item=>!item.archived)?.id||'all';appSettings.activeWorkspaceId=activeWorkspaceId;}
+  await saveAll();renderWorkspaceBar();renderSettings();showToast(workspace.archived?'Workspace archived':'Workspace restored ✓');
+}
+
 // ─── DRAG & DROP ─────────────────────────────────────────────────
 function dragStart(e,idx,scope) { dragSrcIdx={idx,scope}; e.currentTarget.classList.add('dragging'); }
 function dragOver(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
@@ -1265,7 +1381,7 @@ async function dropOn(e,toIdx,scope) {
   e.preventDefault();
   e.currentTarget.classList.remove('drag-over');
   if (!dragSrcIdx||dragSrcIdx.scope!==scope||dragSrcIdx.idx===toIdx) return;
-  const arr = scope==='global'?globalCats:months[activeMonth].categories;
+  const arr = scope==='global'?templateCategories():currentBudget().categories;
   const [item] = arr.splice(dragSrcIdx.idx,1);
   arr.splice(toIdx,0,item);
   await saveAll();
@@ -1283,7 +1399,7 @@ function showAddCatModal(isGlobal) {
 }
 function showEditCat(idx,isGlobal) {
   editCatIsGlobal=isGlobal;
-  const arr=isGlobal?globalCats:months[activeMonth].categories;
+  const arr=isGlobal?templateCategories():currentBudget().categories;
   const c=arr[idx];
   editCatId=idx;
   document.getElementById('editCatTitle').textContent='Edit Category';
@@ -1295,7 +1411,7 @@ async function saveEditCat() {
   const name=document.getElementById('editCatName').value.trim();
   const budget=parseFloat(document.getElementById('editCatBudget').value)||0;
   if (!name){showToast('Enter a name');return;}
-  const arr=editCatIsGlobal?globalCats:months[activeMonth].categories;
+  const arr=editCatIsGlobal?templateCategories():currentBudget().categories;
   if (editCatId===null) {
     arr.push({id:uid(),name,budget,archived:false});
     showToast('Category added ✓');
@@ -1309,9 +1425,9 @@ async function saveEditCat() {
   if (activeMonth) { populateCatSelect(); updateStats(); }
 }
 async function deleteCat(idx,isGlobal) {
-  const arr=isGlobal?globalCats:months[activeMonth].categories;
+  const arr=isGlobal?templateCategories():currentBudget().categories;
   const category=arr[idx]; if(!category)return;
-  const hasTransactions=!isGlobal&&months[activeMonth].expenses.some(expense=>expenseMatchesCategory(expense,category,arr));
+  const hasTransactions=!isGlobal&&currentBudget().expenses.some(expense=>expenseMatchesCategory(expense,category,arr));
   if(hasTransactions){
     if(category.archived){showToast('Category is retained for its transactions');return;}
     if(!confirm(`Archive "${category.name}"? Existing expenses and reports will be preserved.`))return;
@@ -1327,7 +1443,7 @@ async function deleteCat(idx,isGlobal) {
 }
 
 async function restoreCategory(idx){
-  const category=months[activeMonth]?.categories[idx];if(!category)return;
+  const category=currentBudget()?.categories[idx];if(!category)return;
   category.archived=false;await saveAll();renderMonthCatList();populateCatSelect();
   if(currentTab==='cats')renderCats();showToast('Category restored ✓');
 }
@@ -1436,7 +1552,7 @@ async function processCatImport() {
   }
 
   const mode = document.querySelector('input[name="importCatMode"]:checked')?.value || 'append';
-  const targetArray = target === 'global' ? globalCats : months[activeMonth].categories;
+  const targetArray = target === 'global' ? templateCategories() : currentBudget().categories;
 
   if (mode === 'replace') {
     try {
@@ -1446,7 +1562,7 @@ async function processCatImport() {
       return;
     }
     if(target==='month'){
-      const retained=targetArray.filter(category=>months[activeMonth].expenses.some(expense=>expenseMatchesCategory(expense,category,targetArray)));
+      const retained=targetArray.filter(category=>currentBudget().expenses.some(expense=>expenseMatchesCategory(expense,category,targetArray)));
       retained.forEach(category=>{category.archived=true;});
       targetArray.splice(0,targetArray.length,...retained);
     }else targetArray.length = 0;
@@ -1488,14 +1604,14 @@ async function processCatImport() {
     if (currentTab === 'cats') renderCats();
   }
 
-  const scopeLabel = target === 'global' ? 'Global Template' : months[activeMonth]?.name;
+  const scopeLabel = target === 'global' ? `${selectedWorkspace()?.name} Template` : `${months[activeMonth]?.name} · ${selectedWorkspace()?.name}`;
   showToast(`Imported ${addedCount} new, updated ${updatedCount} for ${scopeLabel} ✓`);
 }
 
 function exportCatsCSV(isGlobal=false) {
   const scope = isGlobal ? 'global' : 'month';
-  const name = isGlobal ? 'global-categories' : `categories-${activeMonth||'active'}`;
-  const list = isGlobal ? globalCats : (months[activeMonth]?.categories || []);
+  const name = isGlobal ? `template-${activeWorkspaceId}` : `categories-${activeMonth||'active'}-${activeWorkspaceId}`;
+  const list = isGlobal ? templateCategories() : (currentBudget()?.categories || []);
   if (!list.length) { showToast('No categories to export'); return; }
   const rows = [['Category','Budget']];
   list.forEach(c => rows.push([c.name, c.budget]));
@@ -1504,9 +1620,9 @@ function exportCatsCSV(isGlobal=false) {
   showToast('Categories CSV downloaded ✓');
 }
 function exportCSV() {
-  const m=months[activeMonth]; if(!m){showToast('No month selected');return;}
-  const rows=[['Date','Original Date','Date Status','Category','Description','Amount (BDT)']];
-  [...m.expenses].reverse().forEach(e=>rows.push([e.date||'',e.legacyDate||'',e.dateReview?'Needs review':'Verified',e.cat,e.desc,e.amt]));
+  const m=currentBudget(); if(!m){showToast('Select a workspace and month');return;}
+  const rows=[['Date','Original Date','Date Status','Workspace','Category','Description','Amount (BDT)']];
+  [...m.expenses].reverse().forEach(e=>rows.push([e.date||'',e.legacyDate||'',e.dateReview?'Needs review':'Verified',selectedWorkspace()?.name||'',e.cat,e.desc,e.amt]));
   const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
   dl('data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv), `budget-${activeMonth}.csv`);
   showToast('CSV downloaded ✓');
@@ -1571,8 +1687,10 @@ async function confirmRestore() {
     closeModal('restorePreviewModal');
     loadEnvelope(result.envelope);
     document.getElementById('monthBar').style.display = '';
+    document.getElementById('workspaceBar').style.display = '';
     settingsOpen = false;
     renderMonthBar();
+    renderWorkspaceBar();
     if (activeMonth) renderMonth(); else renderEmpty();
     showToast('Backup restored and verified ✓');
   } catch (error) {
@@ -1587,6 +1705,7 @@ async function recoverPoint(encodedKey) {
     loadEnvelope(result.envelope);
     settingsOpen = false;
     renderMonthBar();
+    renderWorkspaceBar();
     if (activeMonth) renderMonth(); else renderEmpty();
     showToast('Recovery point activated ✓');
   } catch (error) {
@@ -1631,9 +1750,10 @@ async function nukeAll() {
 function closeModal(id){
   document.getElementById(id).classList.remove('show');
   if(id==='editExpenseModal')editingExpense=null;
+  if(id==='workspaceModal')editingWorkspaceId=null;
 }
 document.querySelectorAll('.modal-overlay').forEach(o=>{
-  o.addEventListener('click',e=>{ if(e.target===o) o.classList.remove('show'); });
+  o.addEventListener('click',e=>{ if(e.target===o) closeModal(o.id); });
 });
 
 // ─── KEYBOARD ────────────────────────────────────────────────────

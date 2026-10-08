@@ -76,7 +76,11 @@ test.describe('Phase 0 recovery and migration browser workflows', () => {
     expect(stored.envelope.metadata.kind).toBe('initial');
     expect(stored.envelope.data).toEqual({
       months: {}, globalCats: [], activeMonth: null,
-      settings: { lastBackupAt: null, phase1Version: 1, transactionTrash: [] }
+      workspaces: [{ id: 'workspace-existing', name: 'Existing Budget', archived: false, template: [] }],
+      settings: {
+        lastBackupAt: null, phase1Version: 1, transactionTrash: [],
+        phase2Version: 1, activeWorkspaceId: 'workspace-existing'
+      }
     });
   });
 
@@ -222,7 +226,7 @@ test.describe('Phase 0 recovery and migration browser workflows', () => {
     const addedCatId = await page.evaluate(({ activeKey, revisionPrefix }) => {
       const revision = localStorage.getItem(activeKey);
       return JSON.parse(localStorage.getItem(revisionPrefix + revision))
-        .data.months['2026-10'].expenses[0].catId;
+        .data.months['2026-10'].budgets['workspace-existing'].expenses[0].catId;
     }, { activeKey: ACTIVE_KEY, revisionPrefix: REVISION_PREFIX });
     expect(addedCatId).toBe(20);
 
@@ -281,7 +285,7 @@ test.describe('Phase 0 recovery and migration browser workflows', () => {
       const envelope = JSON.parse(localStorage.getItem(revisionPrefix + revision));
       return {
         revision,
-        expenses: envelope.data.months['2026-10'].expenses,
+        expenses: envelope.data.months['2026-10'].budgets['workspace-existing'].expenses,
         hasRestoreSnapshot: Object.keys(localStorage).some(key => {
           if (!key.startsWith(recoveryPrefix)) return false;
           return JSON.parse(localStorage.getItem(key)).reason === 'before-backup-restore';

@@ -42,11 +42,19 @@
     return {
       months: {},
       globalCats: [],
+      workspaces: [{
+        id: 'workspace-existing',
+        name: 'Existing Budget',
+        archived: false,
+        template: []
+      }],
       activeMonth: null,
       settings: {
         lastBackupAt: null,
         phase1Version: 1,
-        transactionTrash: []
+        transactionTrash: [],
+        phase2Version: 1,
+        activeWorkspaceId: 'workspace-existing'
       }
     };
   }
@@ -111,11 +119,16 @@
 
     const warnings = [];
     Object.entries(isObject(data.months) ? data.months : {}).forEach(([monthKey, month]) => {
-      if (!isObject(month) || !Array.isArray(month.expenses) || !Array.isArray(month.categories)) return;
-      month.categories.forEach(category => {
-        if (isObject(category) && typeof category.archived !== 'boolean') category.archived = false;
-      });
-      month.expenses.forEach(expense => {
+      if (!isObject(month)) return;
+      const budgets = isObject(month.budgets)
+        ? Object.values(month.budgets).filter(isObject)
+        : [{ categories: month.categories, expenses: month.expenses }];
+      budgets.forEach(budget => {
+        if (!Array.isArray(budget.expenses) || !Array.isArray(budget.categories)) return;
+        budget.categories.forEach(category => {
+          if (isObject(category) && typeof category.archived !== 'boolean') category.archived = false;
+        });
+        budget.expenses.forEach(expense => {
         if (!isObject(expense)) return;
         if (isCalendarDate(expense.date) && expense.date.slice(0, 7) === monthKey) return;
         if (expense.date === null && isObject(expense.dateReview)) return;
@@ -127,12 +140,57 @@
           warnings.push(`Expense ${String(expense.id)} in ${monthKey} needs a date review`);
         }
       });
+      });
     });
     data.globalCats.forEach(category => {
       if (isObject(category) && typeof category.archived !== 'boolean') category.archived = false;
     });
     data.settings.phase1Version = 1;
     return { data, warnings };
+  }
+
+  function upgradePhase2Data(input) {
+    const data = clone(input);
+    if (!isObject(data.settings)) data.settings = {};
+    if (data.settings.phase2Version === 1 && Array.isArray(data.workspaces)) {
+      data.workspaces.forEach(workspace => {
+        if (!isObject(workspace)) return;
+        if (!Array.isArray(workspace.template)) workspace.template = [];
+        if (typeof workspace.archived !== 'boolean') workspace.archived = false;
+      });
+      return { data, changed: false };
+    }
+
+    const workspace = {
+      id: 'workspace-existing',
+      name: 'Existing Budget',
+      archived: false,
+      template: clone(Array.isArray(data.globalCats) ? data.globalCats : [])
+    };
+    workspace.template.forEach(category => {
+      if (isObject(category) && typeof category.archived !== 'boolean') category.archived = false;
+    });
+    data.workspaces = [workspace];
+    Object.values(isObject(data.months) ? data.months : {}).forEach(month => {
+      if (!isObject(month)) return;
+      if (!isObject(month.budgets)) month.budgets = {};
+      if (!month.budgets[workspace.id]) {
+        month.budgets[workspace.id] = {
+          categories: Array.isArray(month.categories) ? month.categories : [],
+          expenses: Array.isArray(month.expenses) ? month.expenses : []
+        };
+      }
+      delete month.categories;
+      delete month.expenses;
+    });
+    data.settings.phase2Version = 1;
+    data.settings.activeWorkspaceId = workspace.id;
+    if (Array.isArray(data.settings.transactionTrash)) {
+      data.settings.transactionTrash.forEach(item => {
+        if (isObject(item) && !item.sourceWorkspaceId) item.sourceWorkspaceId = workspace.id;
+      });
+    }
+    return { data, changed: true };
   }
 
   function validateCategory(category, path, errors) {
@@ -210,6 +268,58 @@
     });
 
     const requireFullDates = data.settings.phase1Version === 1;
+    const phase2 = data.settings.phase2Version === 1;
+    const workspaceIds = new Set();
+    if (phase2) {
+      if (!Array.isArray(data.workspaces) || !data.workspaces.length) {
+        errors.push('workspaces must be a non-empty array for Phase 2 data');
+      } else {
+        data.workspaces.forEach((workspace, index) => {
+          const path = `workspaces[${index}]`;
+          if (!isObject(workspace)) { errors.push(`${path} must be an object`); return; }
+          if (typeof workspace.id !== 'string' || !workspace.id) errors.push(`${path}.id must be a non-empty string`);
+          if (workspaceIds.has(workspace.id)) errors.push(`Duplicate workspace ID: ${workspace.id}`);
+          workspaceIds.add(workspace.id);
+          if (typeof workspace.name !== 'string' || !workspace.name.trim()) errors.push(`${path}.name must be a non-empty string`);
+          if (typeof workspace.archived !== 'boolean') errors.push(`${path}.archived must be a boolean`);
+          if (!Array.isArray(workspace.template)) errors.push(`${path}.template must be an array`);
+          else workspace.template.forEach((category, categoryIndex) => validateCategory(category, `${path}.template[${categoryIndex}]`, errors));
+        });
+      }
+      if (typeof data.settings.activeWorkspaceId !== 'string' || !data.settings.activeWorkspaceId) {
+        errors.push('settings.activeWorkspaceId must be a non-empty string');
+      } else if (data.settings.activeWorkspaceId !== 'all' && !workspaceIds.has(data.settings.activeWorkspaceId)) {
+        errors.push('settings.activeWorkspaceId must reference a workspace or all');
+      }
+    }
+
+    function validateBudget(monthKey, budget, path) {
+      if (!isObject(budget)) { errors.push(`${path} must be an object`); return; }
+      if (!Array.isArray(budget.categories)) errors.push(`${path}.categories must be an array`);
+      if (!Array.isArray(budget.expenses)) errors.push(`${path}.expenses must be an array`);
+      if (!Array.isArray(budget.categories) || !Array.isArray(budget.expenses)) return;
+      const categoryIds = new Set();
+      budget.categories.forEach((category, index) => {
+        validateCategory(category, `${path}.categories[${index}]`, errors);
+        if (isObject(category)) {
+          const id = String(category.id);
+          if (categoryIds.has(id)) warnings.push(`Duplicate category ID ${id} in ${monthKey}`);
+          categoryIds.add(id);
+        }
+      });
+      const expenseIds = new Set();
+      budget.expenses.forEach((expense, index) => {
+        validateExpense(expense, `${path}.expenses[${index}]`, errors, requireFullDates);
+        if (!isObject(expense)) return;
+        const id = String(expense.id);
+        if (expenseIds.has(id)) warnings.push(`Duplicate expense ID ${id} in ${monthKey}`);
+        expenseIds.add(id);
+        const hasCategory = budget.categories.some(category =>
+          isObject(category) && (String(category.id) === String(expense.catId) || category.name === expense.cat));
+        if (!hasCategory) warnings.push(`Orphaned expense ${id} in ${monthKey} is preserved`);
+      });
+    }
+
     Object.entries(data.months).forEach(([monthKey, month]) => {
       const path = `months.${monthKey}`;
       if (!/^\d{4}-\d{2}$/.test(monthKey)) warnings.push(`Unusual month key: ${monthKey}`);
@@ -218,33 +328,15 @@
         return;
       }
       if (typeof month.name !== 'string' || !month.name.trim()) errors.push(`${path}.name must be a non-empty string`);
-      if (!Array.isArray(month.categories)) errors.push(`${path}.categories must be an array`);
-      if (!Array.isArray(month.expenses)) errors.push(`${path}.expenses must be an array`);
-      if (!Array.isArray(month.categories) || !Array.isArray(month.expenses)) return;
-
-      const categoryIds = new Set();
-      month.categories.forEach((category, index) => {
-        validateCategory(category, `${path}.categories[${index}]`, errors);
-        if (isObject(category)) {
-          const id = String(category.id);
-          if (categoryIds.has(id)) warnings.push(`Duplicate category ID ${id} in ${monthKey}`);
-          categoryIds.add(id);
-        }
-      });
-
-      const expenseIds = new Set();
-      month.expenses.forEach((expense, index) => {
-        validateExpense(expense, `${path}.expenses[${index}]`, errors, requireFullDates);
-        if (!isObject(expense)) return;
-        const id = String(expense.id);
-        if (expenseIds.has(id)) warnings.push(`Duplicate expense ID ${id} in ${monthKey}`);
-        expenseIds.add(id);
-        const hasCategory = month.categories.some(category =>
-          isObject(category) &&
-          (String(category.id) === String(expense.catId) || category.name === expense.cat)
-        );
-        if (!hasCategory) warnings.push(`Orphaned expense ${id} in ${monthKey} is preserved`);
-      });
+      if (phase2) {
+        if (!isObject(month.budgets)) { errors.push(`${path}.budgets must be an object`); return; }
+        Object.entries(month.budgets).forEach(([workspaceId, budget]) => {
+          if (!workspaceIds.has(workspaceId)) errors.push(`Budget ${workspaceId} in ${monthKey} has no workspace record`);
+          validateBudget(monthKey, budget, `${path}.budgets.${workspaceId}`);
+        });
+      } else {
+        validateBudget(monthKey, { categories: month.categories, expenses: month.expenses }, path);
+      }
     });
 
     if (data.activeMonth && !Object.prototype.hasOwnProperty.call(data.months, data.activeMonth)) {
@@ -257,6 +349,9 @@
     if (data.settings.phase1Version !== undefined && data.settings.phase1Version !== 1) {
       errors.push('settings.phase1Version must be 1 when present');
     }
+    if (data.settings.phase2Version !== undefined && data.settings.phase2Version !== 1) {
+      errors.push('settings.phase2Version must be 1 when present');
+    }
     if (data.settings.transactionTrash !== undefined && !Array.isArray(data.settings.transactionTrash)) {
       errors.push('settings.transactionTrash must be an array when present');
     }
@@ -266,6 +361,8 @@
         if (!isObject(item)) { errors.push(`${path} must be an object`); return; }
         if (typeof item.id !== 'string' || !item.id) errors.push(`${path}.id must be a non-empty string`);
         if (typeof item.sourceMonth !== 'string' || !item.sourceMonth) errors.push(`${path}.sourceMonth must be a non-empty string`);
+        if (phase2 && (typeof item.sourceWorkspaceId !== 'string' || !item.sourceWorkspaceId)) errors.push(`${path}.sourceWorkspaceId must be a non-empty string`);
+        else if (phase2 && !workspaceIds.has(item.sourceWorkspaceId)) errors.push(`${path}.sourceWorkspaceId must reference a workspace`);
         if (!Number.isInteger(item.sourceIndex) || item.sourceIndex < 0) errors.push(`${path}.sourceIndex must be a non-negative integer`);
         if (typeof item.deletedAt !== 'string' || Number.isNaN(Date.parse(item.deletedAt))) errors.push(`${path}.deletedAt must be an ISO date string`);
         validateExpense(item.expense, `${path}.expense`, errors, true);
@@ -277,7 +374,9 @@
   function summarize(data) {
     const summary = {
       months: 0,
-      globalCategories: Array.isArray(data.globalCats) ? data.globalCats.length : 0,
+      globalCategories: Array.isArray(data.workspaces)
+        ? data.workspaces.reduce((sum, workspace) => sum + (Array.isArray(workspace.template) ? workspace.template.length : 0), 0)
+        : (Array.isArray(data.globalCats) ? data.globalCats.length : 0),
       monthlyCategories: 0,
       transactions: 0,
       totalAmount: 0,
@@ -285,8 +384,11 @@
     };
     if (!isObject(data.months)) return summary;
     Object.entries(data.months).forEach(([key, month]) => {
-      const categories = Array.isArray(month.categories) ? month.categories.length : 0;
-      const expenses = Array.isArray(month.expenses) ? month.expenses : [];
+      const budgets = isObject(month.budgets)
+        ? Object.values(month.budgets).filter(isObject)
+        : [{ categories: month.categories, expenses: month.expenses }];
+      const categories = budgets.reduce((sum, budget) => sum + (Array.isArray(budget.categories) ? budget.categories.length : 0), 0);
+      const expenses = budgets.flatMap(budget => Array.isArray(budget.expenses) ? budget.expenses : []);
       const total = expenses.reduce((sum, expense) => sum + (Number.isFinite(expense.amt) ? expense.amt : 0), 0);
       summary.months += 1;
       summary.monthlyCategories += categories;
@@ -387,13 +489,14 @@
     if (!sourceValidation.valid) {
       throw new StorageAdapterError('INVALID_BACKUP', 'Backup data failed validation', sourceValidation);
     }
-    const upgraded = upgradePhase1Data(data);
-    const validation = validateData(upgraded.data);
-    validation.warnings.push(...sourceValidation.warnings, ...upgraded.warnings);
+    const phase1 = upgradePhase1Data(data);
+    const phase2 = upgradePhase2Data(phase1.data);
+    const validation = validateData(phase2.data);
+    validation.warnings.push(...sourceValidation.warnings, ...phase1.warnings);
     if (!validation.valid) {
       throw new StorageAdapterError('INVALID_BACKUP', 'Backup data failed Phase 1 normalization', validation);
     }
-    return { data: upgraded.data, sourceVersion, metadata, validation, summary: summarize(upgraded.data) };
+    return { data: phase2.data, sourceVersion, metadata, validation, summary: summarize(phase2.data) };
   }
 
   class Adapter {
@@ -453,18 +556,19 @@
       try {
         const active = this.readActive();
         if (active) {
-          if (active.envelope.data.settings.phase1Version !== 1) {
+          if (active.envelope.data.settings.phase1Version !== 1 || active.envelope.data.settings.phase2Version !== 1) {
             const before = summarize(active.envelope.data);
-            const upgraded = upgradePhase1Data(active.envelope.data);
-            const after = summarize(upgraded.data);
+            const phase1 = upgradePhase1Data(active.envelope.data);
+            const phase2 = upgradePhase2Data(phase1.data);
+            const after = summarize(phase2.data);
             if (JSON.stringify(before) !== JSON.stringify(after)) {
-              throw new StorageAdapterError('MIGRATION_MISMATCH', 'Phase 1 normalization changed transaction totals');
+              throw new StorageAdapterError('MIGRATION_MISMATCH', 'Workspace migration changed transaction totals');
             }
-            const snapshotKey = this.snapshotCurrent('before-phase-1-normalization');
-            const result = this.commit(upgraded.data, active.envelope.revision, {
-              kind: 'phase-1-normalization',
+            const snapshotKey = this.snapshotCurrent('before-phase-2-workspace-migration');
+            const result = this.commit(phase2.data, active.envelope.revision, {
+              kind: 'phase-2-workspace-migration',
               snapshotKey,
-              warnings: upgraded.warnings,
+              warnings: phase1.warnings,
               sourceSummary: before,
               destinationSummary: after
             });
@@ -624,12 +728,12 @@
       const snapshotKey = this.snapshotRaw('before-schema-1-migration', currentRaw);
       const sourceSummary = summarize(parsed.data);
       const upgraded = upgradePhase1Data(parsed.data);
-      const candidate = upgraded.data;
+      const candidate = upgradePhase2Data(upgraded.data).data;
       const destinationSummary = summarize(candidate);
       const legacyFieldsPreserved = candidate.activeMonth === parsed.data.activeMonth &&
         Object.entries(parsed.data.months).every(([monthKey, month]) =>
           candidate.months[monthKey] && month.expenses.every((expense, index) => {
-            const migrated = candidate.months[monthKey].expenses[index];
+            const migrated = candidate.months[monthKey].budgets['workspace-existing'].expenses[index];
             return migrated && migrated.id === expense.id && migrated.catId === expense.catId &&
               migrated.cat === expense.cat && migrated.desc === expense.desc && migrated.amt === expense.amt &&
               (migrated.date === expense.date || migrated.legacyDate === expense.date);
@@ -753,10 +857,11 @@
       const sourceValidation = validateData(data);
       if (!sourceValidation.valid) throw new StorageAdapterError('INVALID_RECOVERY', 'Recovery data failed validation', sourceValidation);
       const upgraded = upgradePhase1Data(data);
-      const validation = validateData(upgraded.data);
+      const phase2 = upgradePhase2Data(upgraded.data);
+      const validation = validateData(phase2.data);
       if (!validation.valid) throw new StorageAdapterError('INVALID_RECOVERY', 'Recovery data failed normalization', validation);
       this.snapshotCurrent('before-recovery-switch');
-      return this.commit(upgraded.data, expectedRevision, { kind: 'recovery', sourceKey: key });
+      return this.commit(phase2.data, expectedRevision, { kind: 'recovery', sourceKey: key });
     }
 
     recoverExclusive(key, expectedRevision) {
@@ -784,6 +889,7 @@
     normalizeBackup,
     normalizeExpenseDate,
     upgradePhase1Data,
+    upgradePhase2Data,
     isCalendarDate,
     summarize,
     emptyData,

@@ -244,6 +244,7 @@ select option{background:#13161f}
     <div class="frow"><input type="date" id="editExpenseDate" onchange="refreshEditExpenseCategories()" /></div>
     <div class="frow"><select id="editExpenseWorkspace" onchange="refreshEditExpenseCategories()"></select></div>
     <div class="frow"><select id="editExpenseCategory"></select></div>
+    <div class="frow"><select id="editExpenseWallet"></select></div>
     <div id="editExpenseNote" style="font-size:11px;color:var(--amber);line-height:1.45"></div>
     <div class="modal-btns">
       <button class="btn-ghost" onclick="closeModal('editExpenseModal')">Cancel</button>
@@ -261,6 +262,49 @@ select option{background:#13161f}
       <button class="btn-ghost" onclick="closeModal('workspaceModal')">Cancel</button>
       <button class="btn btn-sm" onclick="saveWorkspace()">Save</button>
     </div>
+  </div>
+</div>
+
+<!-- Modal: Wallet -->
+<div class="modal-overlay" id="walletModal">
+  <div class="modal">
+    <h3 id="walletModalTitle">New Wallet</h3>
+    <div class="frow"><input type="text" id="walletName" placeholder="Wallet name (Cash, Bank, bKash…)" /></div>
+    <div id="walletOpeningFields">
+      <div class="frow"><input type="number" id="walletOpeningAmount" placeholder="Opening balance (0 is valid)" min="0" step="any" /></div>
+      <div class="frow"><input type="date" id="walletOpeningDate" /></div>
+      <div style="font-size:11px;color:var(--muted2)">An opening balance is not counted as income.</div>
+    </div>
+    <div class="modal-btns"><button class="btn-ghost" onclick="closeModal('walletModal')">Cancel</button><button class="btn btn-sm" onclick="saveWallet()">Save</button></div>
+  </div>
+</div>
+
+<!-- Modal: Wallet Entry -->
+<div class="modal-overlay" id="walletEntryModal">
+  <div class="modal">
+    <h3 id="walletEntryTitle">Add Income</h3>
+    <div class="frow"><select id="walletEntryWallet"></select></div>
+    <div class="frow"><input type="number" id="walletEntryAmount" placeholder="Amount" step="any" /></div>
+    <div class="frow"><input type="date" id="walletEntryDate" /></div>
+    <div class="frow"><input type="text" id="walletEntrySource" placeholder="Source or reason" /></div>
+    <div class="frow"><input type="text" id="walletEntryDescription" placeholder="Description (optional)" /></div>
+    <div class="modal-btns"><button class="btn-ghost" onclick="closeModal('walletEntryModal')">Cancel</button><button class="btn btn-sm" onclick="saveWalletEntry()">Save</button></div>
+  </div>
+</div>
+
+<!-- Modal: Transfer -->
+<div class="modal-overlay" id="transferModal">
+  <div class="modal">
+    <h3>Add Transfer</h3>
+    <div class="frow"><select id="transferFrom"></select><select id="transferTo"></select></div>
+    <div class="frow"><input type="number" id="transferAmount" placeholder="Transfer amount" min="0.01" step="any" /></div>
+    <div class="frow"><input type="date" id="transferDate" onchange="refreshTransferFeeCategories()" /></div>
+    <div class="frow"><input type="text" id="transferDescription" placeholder="Description (optional)" /></div>
+    <div class="sec-label">Optional transfer fee</div>
+    <div class="frow"><input type="number" id="transferFee" placeholder="Fee amount" min="0" step="any" /></div>
+    <div class="frow"><select id="transferFeeWorkspace" onchange="refreshTransferFeeCategories()"></select><select id="transferFeeCategory"></select></div>
+    <div style="font-size:11px;color:var(--muted2)">The fee is recorded as a separate budget expense paid from the source wallet.</div>
+    <div class="modal-btns"><button class="btn-ghost" onclick="closeModal('transferModal')">Cancel</button><button class="btn btn-sm" onclick="saveTransfer()">Save Transfer</button></div>
   </div>
 </div>
 
@@ -365,6 +409,8 @@ const CAT_COLORS  = ["#6c8fff","#a78bfa","#34d399","#fbbf24","#f472b6","#38bdf8"
 let months = {};        // { [key]: { name, categories, expenses } }
 let globalCats = [];    // [{id,name,budget}]
 let workspaces = [];
+let wallets = [];
+let walletEntries = [];
 let activeWorkspaceId = 'workspace-existing';
 let activeMonth = null; // key like '2026-07'
 let storedActiveMonth = null; // Exact persisted value; may be invalid legacy data awaiting review
@@ -381,6 +427,10 @@ let recoveryState = null;
 let staleDataDetected = false;
 let editingExpense = null;
 let editingWorkspaceId = null;
+let editingWalletId = null;
+let walletEntryMode = 'income';
+let editingWalletEntryId = null;
+let editingTransferId = null;
 const storageAdapter = new BudgetStorage.Adapter(localStorage);
 
 // ─── INIT ────────────────────────────────────────────────────────
@@ -414,7 +464,7 @@ async function init() {
 
 function currentData() {
   appSettings.activeWorkspaceId = activeWorkspaceId;
-  return { months, globalCats, workspaces, activeMonth: storedActiveMonth, settings: appSettings };
+  return { months, globalCats, workspaces, wallets, walletEntries, activeMonth: storedActiveMonth, settings: appSettings };
 }
 
 function loadEnvelope(envelope) {
@@ -422,10 +472,13 @@ function loadEnvelope(envelope) {
   months = data.months;
   globalCats = data.globalCats;
   workspaces = data.workspaces || [];
+  wallets = data.wallets || [];
+  walletEntries = data.walletEntries || [];
   storedActiveMonth = data.activeMonth;
   activeMonth = storedActiveMonth;
   appSettings = data.settings || { lastBackupAt: null, phase1Version: 1, transactionTrash: [] };
   if (!Array.isArray(appSettings.transactionTrash)) appSettings.transactionTrash = [];
+  if (!Array.isArray(appSettings.walletEntryTrash)) appSettings.walletEntryTrash = [];
   activeWorkspaceId = appSettings.activeWorkspaceId || workspaces.find(workspace=>!workspace.archived)?.id || 'all';
   if(activeWorkspaceId!=='all'&&!workspaces.some(workspace=>workspace.id===activeWorkspaceId&&!workspace.archived)) activeWorkspaceId=workspaces.find(workspace=>!workspace.archived)?.id||'all';
   if (!activeMonth || !months[activeMonth]) activeMonth = Object.keys(months).sort()[0] || null;
@@ -466,6 +519,20 @@ function budgetFor(monthKey=activeMonth,workspaceId=activeWorkspaceId) { return 
 function currentBudget() { return activeWorkspaceId==='all'?null:budgetFor(activeMonth,activeWorkspaceId); }
 function templateCategories() { return selectedWorkspace()?.template||[]; }
 function workspaceName(workspaceId) { return workspaces.find(workspace=>workspace.id===workspaceId)?.name||'Unknown workspace'; }
+function walletName(walletId) { return walletId===null?'Wallet unassigned':(wallets.find(wallet=>wallet.id===walletId)?.name||'Unknown wallet'); }
+function allExpenses(){
+  const rows=[];Object.entries(months).forEach(([monthKey,month])=>Object.entries(month.budgets||{}).forEach(([workspaceId,budget])=>(budget.expenses||[]).forEach((expense,index)=>rows.push({monthKey,workspaceId,index,expense}))));return rows;
+}
+function walletBalance(walletId){
+  let balance=0;
+  walletEntries.forEach(entry=>{
+    if(entry.type==='transfer'){if(entry.fromWalletId===walletId)balance-=entry.amount;if(entry.toWalletId===walletId)balance+=entry.amount;}
+    else if(entry.walletId===walletId)balance+=entry.amount;
+  });
+  allExpenses().forEach(row=>{if(row.expense.walletId===walletId)balance-=row.expense.amt;});
+  return balance;
+}
+function combinedWalletBalance(){return wallets.reduce((sum,wallet)=>sum+walletBalance(wallet.id),0);}
 function createWorkspaceBudget(monthKey,workspaceId){
   const month=months[monthKey];const workspace=workspaces.find(item=>item.id===workspaceId);if(!month||!workspace)return null;
   if(!month.budgets)month.budgets={};if(month.budgets[workspaceId])return month.budgets[workspaceId];
@@ -732,7 +799,8 @@ function renderAllWorkspaces(){
   const planned=rows.reduce((sum,row)=>sum+row.planned,0);const spent=rows.reduce((sum,row)=>sum+row.spent,0);
   document.getElementById('headerSub').textContent=`All workspaces · ${fmt(spent)} spent`;
   document.getElementById('mainContent').innerHTML=`${backupReminderHTML()}
-    <div class="hero"><div class="hero-label">Combined remaining</div><div class="hero-amount ${spent>planned?'danger':'safe'}">${fmt(planned-spent)}</div><div class="hero-sub">${fmt(spent)} spent of ${fmt(planned)} · ${rows.reduce((sum,row)=>sum+row.count,0)} transactions</div></div>
+    <div class="hero"><div class="hero-label">Combined budget remaining</div><div class="hero-amount ${spent>planned?'danger':'safe'}">${fmt(planned-spent)}</div><div class="hero-sub">${fmt(spent)} spent of ${fmt(planned)} · ${rows.reduce((sum,row)=>sum+row.count,0)} transactions</div></div>
+    <div class="stat-grid"><div class="stat-card"><div class="sc-label">Tracked Wallet Balance</div><div class="sc-val accent">${fmt(combinedWalletBalance())}</div><div class="sc-sub">Shared across all workspaces</div></div><div class="stat-card"><div class="sc-label">Unassigned History</div><div class="sc-val amber">${allExpenses().filter(row=>row.expense.walletId===null).length}</div><div class="sc-sub">Does not affect wallet balances</div></div></div>
     <div class="sec-label">Workspace overview</div>
     ${rows.map(row=>`<div class="workspace-card"><div class="workspace-card-head"><div class="workspace-card-name">${h(row.workspace.name)}${row.workspace.archived?'<span class="archived-badge">Archived</span>':''}</div><div class="cat-spent">${fmt(row.spent)}</div></div><div class="workspace-card-meta">${fmt(row.planned)} planned · ${row.count} transactions · ${fmt(row.planned-row.spent)} remaining</div></div>`).join('')||'<div class="empty-state">No workspace budgets in this month.</div>'}`;
 }
@@ -761,6 +829,8 @@ function renderMonth() {
       <div class="stat-card"><div class="sc-label">Daily Avg</div><div class="sc-val amber" id="stDaily"></div><div class="sc-sub" id="stDailySub"></div></div>
       <div class="stat-card"><div class="sc-label">Days Left</div><div class="sc-val accent" id="stDaysLeft"></div><div class="sc-sub" id="stDaysLeftSub"></div></div>
       <div class="stat-card"><div class="sc-label">Needed/Day</div><div class="sc-val" id="stNeeded"></div><div class="sc-sub" id="stNeededSub"></div></div>
+      <div class="stat-card"><div class="sc-label">Tracked Wallets</div><div class="sc-val accent" id="stWalletBalance"></div><div class="sc-sub">Separate from budget remaining</div></div>
+      <div class="stat-card"><div class="sc-label">Wallet Unassigned</div><div class="sc-val amber" id="stUnassigned"></div><div class="sc-sub">Historical expenses only</div></div>
     </div>
     <div class="tabs">
       <button class="tab" onclick="switchTab('add')">Add</button>
@@ -768,11 +838,13 @@ function renderMonth() {
       <button class="tab" onclick="switchTab('analytics')">Analytics</button>
       <button class="tab" onclick="switchTab('history')">History</button>
       <button class="tab" onclick="switchTab('log')">Log</button>
+      <button class="tab" onclick="switchTab('wallets')">Wallets</button>
     </div>
     <div class="tab-panel" id="tab-add">
       <div class="sec-label">Record an expense</div>
       <div class="add-form">
         <div class="frow"><select id="catSel"><option value="">Select category…</option></select></div>
+        <div class="frow"><select id="walletSel"><option value="">Select wallet…</option></select></div>
         <div class="frow"><input type="text" id="descIn" placeholder="What did you spend on?" /></div>
         <div class="frow"><input type="date" id="dateIn" min="${h(activeMonth)}-01" max="${h(activeMonth)}-${String(new Date(Number(activeMonth.slice(0,4)),Number(activeMonth.slice(5,7)),0).getDate()).padStart(2,'0')}" /></div>
         <div class="frow">
@@ -795,11 +867,13 @@ function renderMonth() {
         <button class="btn-danger" onclick="clearMonth()">Clear workspace expenses</button>
       </div>
     </div>
+    <div class="tab-panel" id="tab-wallets"><div id="walletContent"></div></div>
   `;
 
   // Set active tab
   switchTab(currentTab, false);
   populateCatSelect();
+  populateWalletSelect(document.getElementById('walletSel'));
   const dateInput = document.getElementById('dateIn');
   if (dateInput) dateInput.value = defaultDateForMonth(activeMonth);
   updateStats();
@@ -819,7 +893,7 @@ function renderEmpty() {
 function switchTab(name, save=true) {
   if (save) currentTab = name;
   document.querySelectorAll('.tab').forEach((t,i)=>{
-    t.classList.toggle('active', ['add','cats','analytics','history','log'][i]===name);
+    t.classList.toggle('active', ['add','cats','analytics','history','log','wallets'][i]===name);
   });
   document.querySelectorAll('.tab-panel').forEach(p=>{
     p.classList.toggle('active', p.id==='tab-'+name);
@@ -828,6 +902,7 @@ function switchTab(name, save=true) {
   if (name==='analytics') renderAnalytics();
   if (name==='history') renderHistory();
   if (name==='log') renderLog();
+  if (name==='wallets') renderWallets();
 }
 
 let settingsOpen = false;
@@ -890,6 +965,8 @@ function updateStats() {
   document.getElementById('stDailySub').textContent = 'avg over '+daysPassed+' days';
   document.getElementById('stDaysLeft').textContent = daysLeft;
   document.getElementById('stDaysLeftSub').textContent = isCurrentMonth?'days remaining':'month ended';
+  document.getElementById('stWalletBalance').textContent=fmt(combinedWalletBalance());
+  document.getElementById('stUnassigned').textContent=m.expenses.filter(expense=>expense.walletId===null).length;
   const ndEl = document.getElementById('stNeeded');
   if (daysLeft > 0) {
     if (isOverBudget) {
@@ -923,6 +1000,12 @@ function populateCatSelect() {
   });
 }
 
+function populateWalletSelect(select,selectedId=null,includeUnassigned=false){
+  if(!select)return;select.replaceChildren();
+  const placeholder=document.createElement('option');placeholder.value='';placeholder.textContent=includeUnassigned?'Wallet unassigned (historical)':'Select wallet…';select.appendChild(placeholder);
+  wallets.forEach(wallet=>{if(wallet.archived&&wallet.id!==selectedId)return;const option=document.createElement('option');option.value=wallet.id;option.textContent=wallet.name+(wallet.archived?' (archived)':'');if(wallet.id===selectedId)option.selected=true;select.appendChild(option);});
+}
+
 function defaultDateForMonth(monthKey) {
   const today = new Date();
   const localToday = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
@@ -937,18 +1020,22 @@ async function addExpense() {
   const desc  = document.getElementById('descIn').value.trim();
   const amt   = parseFloat(document.getElementById('amtIn').value);
   const date  = document.getElementById('dateIn').value;
+  const walletId=document.getElementById('walletSel').value;
   const cat   = Number.isInteger(catIndex) ? m.categories[catIndex] : null;
   if (!cat || cat.archived) { showToast('Pick an active category'); return; }
   if (!desc)      { showToast('Describe the expense'); return; }
   if (!Number.isFinite(amt)||amt<=0){ showToast('Enter a finite positive amount'); return; }
   if (!BudgetStorage.isCalendarDate(date) || date.slice(0,7)!==activeMonth) { showToast('Pick a date in this month'); return; }
-  m.expenses.unshift({id:uid().replace(/^c/,'e'),catId:cat.id,cat:cat.name,desc,amt,date});
+  const wallet=wallets.find(item=>item.id===walletId&&!item.archived);if(!wallet){showToast('Pick an active wallet');return;}
+  if(walletBalance(walletId)-amt<0&&!confirm(`${wallet.name} will have a negative tracked balance. Continue?`))return;
+  m.expenses.unshift({id:uid().replace(/^c/,'e'),catId:cat.id,cat:cat.name,desc,amt,date,walletId});
   await saveAll(); updateStats();
   if (currentTab==='cats') renderCats();
   if (currentTab==='log') renderLog();
   document.getElementById('catSel').value='';
   document.getElementById('descIn').value='';
   document.getElementById('amtIn').value='';
+  document.getElementById('walletSel').value='';
   document.getElementById('dateIn').value=defaultDateForMonth(activeMonth);
   showToast('Added ✓');
 }
@@ -986,6 +1073,8 @@ function showEditExpense(monthKey,index,workspaceId=activeWorkspaceId) {
   document.getElementById('editExpenseDesc').value = expense.desc;
   document.getElementById('editExpenseAmount').value = expense.amt;
   document.getElementById('editExpenseDate').value = expense.date || '';
+  const walletSelect=document.getElementById('editExpenseWallet');populateWalletSelect(walletSelect,expense.walletId,true);
+  if(expense.walletId===null){walletSelect.value='';walletSelect.disabled=true;}else walletSelect.disabled=false;
   const workspaceSelect=document.getElementById('editExpenseWorkspace');workspaceSelect.replaceChildren();
   workspaces.filter(workspace=>!workspace.archived||workspace.id===workspaceId).forEach(workspace=>{const option=document.createElement('option');option.value=workspace.id;option.textContent=workspace.name;if(workspace.id===workspaceId)option.selected=true;workspaceSelect.appendChild(option);});
   document.getElementById('editExpenseNote').textContent = expense.dateReview
@@ -1035,10 +1124,13 @@ async function saveExpenseEdit() {
   const catIndex = Number(document.getElementById('editExpenseCategory').value);
   const category = Number.isInteger(catIndex) ? destination.categories[catIndex] : null;
   if (!category) { showToast('Choose a destination category'); return; }
+  const walletId=document.getElementById('editExpenseWallet').value||null;
+  if(expense.walletId!==null&&!wallets.some(wallet=>wallet.id===walletId)){showToast('Choose a wallet');return;}
   const isMove=destinationKey!==editingExpense.sourceMonth||destinationWorkspaceId!==editingExpense.sourceWorkspaceId;
   if (isMove && !confirm(`Move this expense to ${destinationMonth.name} · ${workspaceName(destinationWorkspaceId)}?`)) return;
 
-  expense.desc=desc; expense.amt=amount; expense.date=date; expense.catId=category.id; expense.cat=category.name;
+  if(walletId&&walletBalance(walletId)+(expense.walletId===walletId?expense.amt:0)-amount<0&&!confirm(`${walletName(walletId)} will have a negative tracked balance. Continue?`))return;
+  expense.desc=desc; expense.amt=amount; expense.date=date; expense.catId=category.id; expense.cat=category.name;expense.walletId=walletId;
   delete expense.legacyDate; delete expense.dateReview;
   if (isMove) {
     source.expenses.splice(editingExpense.index,1);
@@ -1109,7 +1201,7 @@ function renderCats() {
     const expHTML = exps.length===0
       ?'<div class="exp-empty">No expenses yet</div>'
       :exps.map(({e,expenseIndex})=>`<div class="exp-item">
-        <div><div class="exp-desc">${h(e.desc)}</div><div class="exp-date ${e.dateReview?'date-review':''}">${h(displayExpenseDate(e))}</div></div>
+        <div><div class="exp-desc">${h(e.desc)}</div><div class="exp-date ${e.dateReview?'date-review':''}">${h(displayExpenseDate(e))} · ${h(walletName(e.walletId))}</div></div>
         <div class="exp-r"><span class="exp-amt">${fmt(e.amt)}</span>
         <button class="edit-exp-btn" aria-label="Edit ${h(e.desc)}" onclick="event.stopPropagation();showEditExpense(activeMonth,${expenseIndex})">✏</button>
         <button class="del-btn" onclick="event.stopPropagation();deleteExpenseAt(${expenseIndex})">✕</button></div>
@@ -1228,13 +1320,130 @@ function renderLog() {
   if (filtered.length===0){ll.innerHTML='<div class="empty-state">No expenses found.</div>';return;}
   ll.innerHTML=filtered.map(({e,expenseIndex})=>`
     <div class="log-item">
-      <div><div class="log-cat">${h(e.cat)}</div><div class="log-desc">${h(e.desc)}</div><div class="log-date ${e.dateReview?'date-review':''}">${h(displayExpenseDate(e))}</div></div>
+      <div><div class="log-cat">${h(e.cat)}</div><div class="log-desc">${h(e.desc)}</div><div class="log-date ${e.dateReview?'date-review':''}">${h(displayExpenseDate(e))} · ${h(walletName(e.walletId))}</div></div>
       <div class="log-r">
         <div class="log-amt">${fmt(e.amt)}</div>
         <button class="edit-exp-btn" aria-label="Edit ${h(e.desc)}" onclick="showEditExpense(activeMonth,${expenseIndex})">✏</button>
         <button class="del-btn" onclick="deleteExpenseAt(${expenseIndex})">✕</button>
       </div>
     </div>`).join('');
+}
+
+// ─── WALLETS ────────────────────────────────────────────────────
+function walletHistoryRows(){
+  const rows=walletEntries.map(entry=>({kind:'entry',date:entry.date,id:entry.id,entry}));
+  allExpenses().forEach(item=>{if(item.expense.walletId)rows.push({kind:'expense',date:item.expense.date||'',id:item.expense.id,item});});
+  return rows.sort((a,b)=>String(b.date).localeCompare(String(a.date))||String(b.id).localeCompare(String(a.id)));
+}
+
+function renderWallets(){
+  const content=document.getElementById('walletContent');if(!content)return;
+  const cards=wallets.map((wallet,index)=>`<div class="workspace-card"><div class="workspace-card-head"><div class="workspace-card-name">${h(wallet.name)}${wallet.archived?'<span class="archived-badge">Archived</span>':''}</div><div class="cat-spent">${fmt(walletBalance(wallet.id))}</div></div><div class="workspace-card-meta">Derived from opening balances, income, expenses, transfers, and adjustments</div><div style="display:flex;gap:6px;margin-top:8px"><button class="btn-outline btn-sm" onclick="showWalletModal(${index})">Rename</button><button class="btn-outline btn-sm" onclick="toggleWalletArchive(${index})">${wallet.archived?'Restore':'Archive'}</button></div></div>`).join('');
+  const history=walletHistoryRows().map(row=>{
+    if(row.kind==='expense'){
+      const {item}=row;return `<div class="log-item"><div><div class="log-cat">Expense · ${h(walletName(item.expense.walletId))}</div><div class="log-desc">${h(item.expense.desc)}</div><div class="log-date">${h(row.date)} · ${h(workspaceName(item.workspaceId))}</div></div><div class="log-amt">-${fmt(item.expense.amt)}</div></div>`;
+    }
+    const entry=row.entry;let label=entry.type;let detail=entry.description||'';let amount=entry.amount;let walletLabel=walletName(entry.walletId);
+    if(entry.type==='income'){label=`Income · ${entry.source}`;}
+    if(entry.type==='opening'){label='Opening balance';}
+    if(entry.type==='adjustment'){label=`Adjustment · ${entry.reason}`;}
+    if(entry.type==='transfer'){label='Transfer';detail=`${walletName(entry.fromWalletId)} → ${walletName(entry.toWalletId)}${detail?' · '+detail:''}`;walletLabel='';}
+    return `<div class="log-item"><div><div class="log-cat">${h(label)}${walletLabel?' · '+h(walletLabel):''}</div><div class="log-desc">${h(detail||'—')}</div><div class="log-date">${h(entry.date)}</div></div><div class="log-r"><div class="log-amt" style="color:${entry.type==='income'||entry.type==='opening'||entry.amount>0&&entry.type==='adjustment'?'var(--green)':'var(--muted2)'}">${entry.type==='transfer'?fmt(entry.amount):(entry.amount>0?'+':'')+fmt(entry.amount)}</div><button class="edit-exp-btn" aria-label="Edit wallet entry" onclick="${entry.type==='transfer'?`showTransferModal('${entry.id}')`:`showWalletEntryModal('${entry.type}','${entry.id}')`}">✏</button><button class="del-btn" aria-label="Delete wallet entry" onclick="deleteWalletEntry('${entry.id}')">✕</button></div></div>`;
+  }).join('');
+  content.innerHTML=`<div class="sec-label" style="display:flex;justify-content:space-between;align-items:center"><span>Shared wallets</span><button class="btn btn-sm" onclick="showWalletModal()">+ Wallet</button></div>${cards||'<div class="empty-state">Create a wallet to track actual money.</div>'}<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0"><button class="btn-outline" onclick="showWalletEntryModal('income')">+ Income</button><button class="btn-outline" onclick="showTransferModal()">⇄ Transfer</button><button class="btn-outline" onclick="showWalletEntryModal('adjustment')">± Adjustment</button></div><div class="sec-label">Wallet history</div>${history||'<div class="empty-state">No wallet activity yet.</div>'}`;
+}
+
+function showWalletModal(index=null){
+  const wallet=Number.isInteger(index)?wallets[index]:null;editingWalletId=wallet?.id||null;
+  document.getElementById('walletModalTitle').textContent=wallet?'Rename Wallet':'New Wallet';
+  document.getElementById('walletName').value=wallet?.name||'';
+  document.getElementById('walletOpeningFields').style.display=wallet?'none':'';
+  document.getElementById('walletOpeningAmount').value='0';document.getElementById('walletOpeningDate').value=defaultDateForMonth(activeMonth||new Date().toISOString().slice(0,7));
+  document.getElementById('walletModal').classList.add('show');
+}
+
+async function saveWallet(){
+  const name=document.getElementById('walletName').value.trim();if(!name){showToast('Enter a wallet name');return;}
+  if(editingWalletId){const wallet=wallets.find(item=>item.id===editingWalletId);if(!wallet)return;wallet.name=name;}
+  else{
+    const amount=Number(document.getElementById('walletOpeningAmount').value||0);const date=document.getElementById('walletOpeningDate').value;
+    if(!Number.isFinite(amount)||amount<0){showToast('Opening balance must be zero or positive');return;}
+    if(!BudgetStorage.isCalendarDate(date)){showToast('Choose an opening-balance date');return;}
+    const wallet={id:`wallet-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,name,archived:false};wallets.push(wallet);
+    if(amount>0)walletEntries.unshift({id:`wallet-entry-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,type:'opening',walletId:wallet.id,amount,date,description:'Opening balance'});
+  }
+  await saveAll();closeModal('walletModal');editingWalletId=null;populateWalletSelect(document.getElementById('walletSel'));updateStats();if(currentTab==='wallets')renderWallets();showToast('Wallet saved ✓');
+}
+
+async function toggleWalletArchive(index){
+  const wallet=wallets[index];if(!wallet)return;if(!wallet.archived&&!confirm(`Archive ${wallet.name}? Its history and balance will be preserved.`))return;
+  wallet.archived=!wallet.archived;await saveAll();renderWallets();populateWalletSelect(document.getElementById('walletSel'));showToast(wallet.archived?'Wallet archived':'Wallet restored ✓');
+}
+
+function showWalletEntryModal(type,id=null){
+  if(!wallets.length){showToast('Create a wallet first');return;}
+  walletEntryMode=type;editingWalletEntryId=id;const entry=id?walletEntries.find(item=>item.id===id):null;
+  document.getElementById('walletEntryTitle').textContent=`${entry?'Edit':'Add'} ${type==='income'?'Income':type==='adjustment'?'Adjustment':'Opening Balance'}`;
+  populateWalletSelect(document.getElementById('walletEntryWallet'),entry?.walletId);if(!entry)document.getElementById('walletEntryWallet').value=wallets.find(wallet=>!wallet.archived)?.id||'';
+  document.getElementById('walletEntryAmount').value=entry?.amount??'';
+  document.getElementById('walletEntryDate').value=entry?.date||defaultDateForMonth(activeMonth||new Date().toISOString().slice(0,7));
+  const source=document.getElementById('walletEntrySource');source.placeholder=type==='income'?'Income source':'Adjustment reason';source.value=entry?.source||entry?.reason||'';
+  source.parentElement.style.display=type==='opening'?'none':'';
+  document.getElementById('walletEntryDescription').value=entry?.description||'';
+  document.getElementById('walletEntryModal').classList.add('show');
+}
+
+async function saveWalletEntry(){
+  const walletId=document.getElementById('walletEntryWallet').value;const amount=Number(document.getElementById('walletEntryAmount').value);const date=document.getElementById('walletEntryDate').value;const source=document.getElementById('walletEntrySource').value.trim();const description=document.getElementById('walletEntryDescription').value.trim();
+  if(!wallets.some(wallet=>wallet.id===walletId)){showToast('Choose a wallet');return;}
+  if(!Number.isFinite(amount)||amount===0||(walletEntryMode!=='adjustment'&&amount<0)){showToast(walletEntryMode==='adjustment'?'Enter a finite non-zero adjustment':'Enter a finite positive amount');return;}
+  if(!BudgetStorage.isCalendarDate(date)){showToast('Choose a valid date');return;}
+  if(walletEntryMode==='income'&&!source){showToast('Enter an income source');return;}if(walletEntryMode==='adjustment'&&!source){showToast('Enter an adjustment reason');return;}
+  const old=editingWalletEntryId?walletEntries.find(entry=>entry.id===editingWalletEntryId):null;
+  const projected=walletBalance(walletId)+(old?.walletId===walletId?-(old.amount):0)+amount;
+  if(projected<0&&!confirm(`${walletName(walletId)} will have a negative tracked balance. Continue?`))return;
+  const entry=old||{id:`wallet-entry-${Date.now()}-${Math.random().toString(36).slice(2,7)}`};Object.assign(entry,{type:walletEntryMode,walletId,amount,date,description});delete entry.source;delete entry.reason;if(walletEntryMode==='income')entry.source=source;if(walletEntryMode==='adjustment')entry.reason=source;
+  if(!old)walletEntries.unshift(entry);await saveAll();closeModal('walletEntryModal');editingWalletEntryId=null;updateStats();renderWallets();showToast('Wallet entry saved ✓');
+}
+
+function showTransferModal(id=null){
+  if(wallets.filter(wallet=>!wallet.archived).length<2&&!id){showToast('Create at least two active wallets');return;}
+  editingTransferId=id;const entry=id?walletEntries.find(item=>item.id===id&&item.type==='transfer'):null;
+  populateWalletSelect(document.getElementById('transferFrom'),entry?.fromWalletId);populateWalletSelect(document.getElementById('transferTo'),entry?.toWalletId);
+  const active=wallets.filter(wallet=>!wallet.archived);if(!entry){document.getElementById('transferFrom').value=active[0]?.id||'';document.getElementById('transferTo').value=active[1]?.id||'';}
+  document.getElementById('transferAmount').value=entry?.amount??'';document.getElementById('transferDate').value=entry?.date||defaultDateForMonth(activeMonth||new Date().toISOString().slice(0,7));document.getElementById('transferDescription').value=entry?.description||'';
+  const linked=entry?allExpenses().find(row=>row.expense.transferId===entry.id):null;document.getElementById('transferFee').value=linked?.expense.amt||'';
+  const ws=document.getElementById('transferFeeWorkspace');ws.replaceChildren();workspaces.filter(workspace=>!workspace.archived).forEach(workspace=>{const option=document.createElement('option');option.value=workspace.id;option.textContent=workspace.name;if(workspace.id===(linked?.workspaceId||activeWorkspaceId))option.selected=true;ws.appendChild(option);});
+  refreshTransferFeeCategories(linked?.expense.catId);document.getElementById('transferModal').classList.add('show');
+}
+
+function refreshTransferFeeCategories(selectedCatId=null){
+  const date=document.getElementById('transferDate').value;const workspaceId=document.getElementById('transferFeeWorkspace').value;const budget=BudgetStorage.isCalendarDate(date)?budgetFor(date.slice(0,7),workspaceId):null;const select=document.getElementById('transferFeeCategory');select.replaceChildren();
+  (budget?.categories||[]).filter(category=>!category.archived).forEach((category,index)=>{const option=document.createElement('option');option.value=String(index);option.textContent=category.name;if(String(category.id)===String(selectedCatId))option.selected=true;select.appendChild(option);});
+}
+
+async function saveTransfer(){
+  const fromWalletId=document.getElementById('transferFrom').value;const toWalletId=document.getElementById('transferTo').value;const amount=Number(document.getElementById('transferAmount').value);const fee=Number(document.getElementById('transferFee').value||0);const date=document.getElementById('transferDate').value;const description=document.getElementById('transferDescription').value.trim();
+  if(fromWalletId===toWalletId||!wallets.some(wallet=>wallet.id===fromWalletId)||!wallets.some(wallet=>wallet.id===toWalletId)){showToast('Choose two different wallets');return;}
+  if(!Number.isFinite(amount)||amount<=0||!Number.isFinite(fee)||fee<0){showToast('Enter valid transfer and fee amounts');return;}if(!BudgetStorage.isCalendarDate(date)){showToast('Choose a valid date');return;}
+  const workspaceId=document.getElementById('transferFeeWorkspace').value;const monthKey=date.slice(0,7);const budget=fee>0?budgetFor(monthKey,workspaceId):null;const catIndex=Number(document.getElementById('transferFeeCategory').value);const category=budget?.categories?.[catIndex];
+  if(fee>0&&(!budget||!category)){showToast('Choose a fee workspace and category for that month');return;}
+  const old=editingTransferId?walletEntries.find(entry=>entry.id===editingTransferId):null;let linked=old?allExpenses().find(row=>row.expense.transferId===old.id):null;const projected=walletBalance(fromWalletId)+(old?.fromWalletId===fromWalletId?old.amount:0)-(old?.toWalletId===fromWalletId?old.amount:0)+(linked?.expense.walletId===fromWalletId?linked.expense.amt:0)-amount-fee;if(projected<0&&!confirm(`${walletName(fromWalletId)} will have a negative tracked balance. Continue?`))return;
+  const entry=old||{id:`wallet-entry-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,type:'transfer'};Object.assign(entry,{fromWalletId,toWalletId,amount,date,description});if(!old)walletEntries.unshift(entry);
+  linked=linked||allExpenses().find(row=>row.expense.transferId===entry.id);
+  if(fee>0){
+    if(linked&&(linked.monthKey!==monthKey||linked.workspaceId!==workspaceId)){budgetFor(linked.monthKey,linked.workspaceId).expenses.splice(linked.index,1);linked=null;}
+    const expense=linked?.expense||{id:`expense-fee-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,transferId:entry.id};Object.assign(expense,{catId:category.id,cat:category.name,desc:description?`Transfer fee · ${description}`:'Transfer fee',amt:fee,date,walletId:fromWalletId});if(!linked)budget.expenses.unshift(expense);
+  }else if(linked){budgetFor(linked.monthKey,linked.workspaceId).expenses.splice(linked.index,1);}
+  await saveAll();closeModal('transferModal');editingTransferId=null;updateStats();renderWallets();showToast('Transfer saved ✓');
+}
+
+async function deleteWalletEntry(id){
+  const index=walletEntries.findIndex(entry=>entry.id===id);if(index<0||!confirm('Move this wallet entry to recoverable trash?'))return;const [entry]=walletEntries.splice(index,1);appSettings.walletEntryTrash.unshift({id:`wallet-trash-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,deletedAt:new Date().toISOString(),entry});await saveAll();updateStats();renderWallets();showToast('Wallet entry moved to trash');
+}
+
+async function restoreWalletEntry(trashId){
+  const index=appSettings.walletEntryTrash.findIndex(item=>item.id===trashId);if(index<0)return;const item=appSettings.walletEntryTrash[index];if(walletEntries.some(entry=>entry.id===item.entry.id)){showToast('Entry already exists');return;}appSettings.walletEntryTrash.splice(index,1);walletEntries.unshift(item.entry);await saveAll();if(settingsOpen)renderSettings();showToast('Wallet entry restored ✓');
 }
 
 // ─── SETTINGS ────────────────────────────────────────────────────
@@ -1256,6 +1465,7 @@ function renderSettings() {
       <div class="recovery-meta"><div>${h(item.expense?.desc || 'Expense')} · ${fmt(item.expense?.amt || 0)}</div><div>${h(item.sourceMonth)} · ${h(workspaceName(item.sourceWorkspaceId))} · deleted ${h(new Date(item.deletedAt).toLocaleString())}</div></div>
       <button class="btn-outline btn-sm" onclick="restoreTrashItem(appSettings.transactionTrash[${itemIndex}].id)">Restore</button>
     </div>`).join('') : '<div class="recovery-meta">Trash is empty.</div>';
+  const walletTrashHTML=appSettings.walletEntryTrash.length?appSettings.walletEntryTrash.map((item,itemIndex)=>`<div class="recovery-item"><div class="recovery-meta"><div>${h(item.entry.type)} · ${fmt(item.entry.amount)}</div><div>${h(item.entry.date)} · deleted ${h(new Date(item.deletedAt).toLocaleString())}</div></div><button class="btn-outline btn-sm" onclick="restoreWalletEntry(appSettings.walletEntryTrash[${itemIndex}].id)">Restore</button></div>`).join(''):'<div class="recovery-meta">Wallet-entry trash is empty.</div>';
   content.innerHTML=`
     ${backupReminderHTML()}
     <div class="settings-section"><h3><span>Workspaces</span><button class="btn btn-sm" onclick="showWorkspaceModal()">+</button></h3>
@@ -1305,6 +1515,7 @@ function renderSettings() {
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Deleted transactions stay here until restored. They remain in full backups.</div>
       ${trashHTML}
     </div>
+    <div class="settings-section"><h3>Deleted Wallet Entries</h3><div style="font-size:11px;color:var(--muted);margin-bottom:8px">Deleted income, opening balances, transfers, and adjustments remain recoverable.</div>${walletTrashHTML}</div>
     <div class="danger-zone">
       <p>Permanently delete data. Cannot be undone.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1621,8 +1832,8 @@ function exportCatsCSV(isGlobal=false) {
 }
 function exportCSV() {
   const m=currentBudget(); if(!m){showToast('Select a workspace and month');return;}
-  const rows=[['Date','Original Date','Date Status','Workspace','Category','Description','Amount (BDT)']];
-  [...m.expenses].reverse().forEach(e=>rows.push([e.date||'',e.legacyDate||'',e.dateReview?'Needs review':'Verified',selectedWorkspace()?.name||'',e.cat,e.desc,e.amt]));
+  const rows=[['Date','Original Date','Date Status','Workspace','Wallet','Category','Description','Amount (BDT)']];
+  [...m.expenses].reverse().forEach(e=>rows.push([e.date||'',e.legacyDate||'',e.dateReview?'Needs review':'Verified',selectedWorkspace()?.name||'',walletName(e.walletId),e.cat,e.desc,e.amt]));
   const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
   dl('data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv), `budget-${activeMonth}.csv`);
   showToast('CSV downloaded ✓');
@@ -1751,6 +1962,9 @@ function closeModal(id){
   document.getElementById(id).classList.remove('show');
   if(id==='editExpenseModal')editingExpense=null;
   if(id==='workspaceModal')editingWorkspaceId=null;
+  if(id==='walletModal')editingWalletId=null;
+  if(id==='walletEntryModal')editingWalletEntryId=null;
+  if(id==='transferModal')editingTransferId=null;
 }
 document.querySelectorAll('.modal-overlay').forEach(o=>{
   o.addEventListener('click',e=>{ if(e.target===o) closeModal(o.id); });

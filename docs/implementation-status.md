@@ -12,7 +12,7 @@ This is the living delivery record for the product roadmap. Update it after ever
 | 0. Recovery and migration foundation | Release candidate | All automated gates pass; real-data preview verification remains the production release gate |
 | 1. Reliable transaction entry | Release candidate | Editable full-date expenses, safe rendering, category archival/import protection, and recoverable deletion |
 | 2. Multiple budget workspaces | Release candidate | Independent named workspaces, workspace templates/months, All Workspaces overview, and safe transaction moves |
-| 3. Wallets, income, and transfers | Not started | Shared wallet ledger, balances, income, transfers, and fees |
+| 3. Wallets, income, and transfers | Release candidate | Shared wallets, derived balances, income, transfers, linked fees, adjustments, and wallet-unassigned history |
 | 4. Unified reports and daily-use polish | Not started | Ledger-based filters, exports, accessibility, and offline/update hardening |
 | 5. Planning features | Not started | Recurring entries, goals, debt, rollover, and comparisons |
 | 6. Optional enhancements | Not started | Tags, privacy controls, encryption, and optional synchronization |
@@ -240,11 +240,75 @@ The completed run includes 12 dependency-free storage checks, 42 passing Jest ca
 
 Run the Phase 2 real-data preview and manual mobile/accessibility checks. After the release gates pass, begin Phase 3 with shared wallets, income, transfers, and wallet-unassigned handling for every historical expense.
 
+## Phase 3 — Wallets, income, and transfers
+
+Implementation date: 8 October 2026
+Code status: Complete
+Release status: Ready for isolated real-data preview; see [`phase-3-test-report.md`](./phase-3-test-report.md)
+
+### Implementation brief
+
+Phase 3 adds one shared wallet ledger above the workspace budgets. Wallet balances are calculated from opening balances, income, adjustments, transfers, and wallet-linked expenses; no mutable balance field is stored. A transfer is one ledger entry with a source and destination, while an optional transfer fee is a separate budget expense linked back to that transfer.
+
+The one-time `phase3Version` migration leaves every historical expense explicitly wallet-unassigned. Those expenses continue to count in their original budget and reports, but never reduce a newly entered wallet opening balance. Wallets and their ledger remain shared across workspaces and month boundaries.
+
+### Delivered
+
+- Added create, rename, archive, and restore controls for Cash, Bank, bKash, or any custom wallet.
+- Added dated opening balances as a distinct ledger type that is excluded from earned income.
+- Added dated income with wallet, source, description, and amount.
+- Required an active funding wallet for every new expense while keeping migrated expenses wallet-unassigned.
+- Added single-record wallet-to-wallet transfers that do not affect budget spending or combined wallet value.
+- Added optional transfer fees as separate, linked workspace/category expenses paid from the source wallet.
+- Added dated positive or negative balance adjustments with a mandatory reason.
+- Added a shared wallet history containing ledger movements and wallet-linked expenses.
+- Derived every wallet balance from stored records so edits, deletes, restores, and reloads recalculate deterministically.
+- Added recoverable wallet-entry trash alongside the existing expense trash.
+- Kept budget remaining and tracked wallet balance visually separate, including a visible wallet-unassigned count.
+- Added explicit confirmation before an expense, entry, or transfer would produce a negative tracked balance.
+- Extended expense CSV export with the wallet name/status.
+- Bumped the application-shell cache for the coordinated Phase 3 update.
+
+### Data migration and compatibility
+
+Dataset evolution is tracked by `settings.phase3Version: 1`; the outer storage/backup envelope remains schema version 1. Normalization initializes `wallets`, `walletEntries`, and `settings.walletEntryTrash`, then adds `walletId: null` to every active or trashed historical expense. It does not infer wallet ownership, create synthetic balances, or alter expense counts and totals.
+
+The adapter snapshots the complete pre-Phase-3 dataset before activation and verifies that month/category/expense counts and totals are identical after migration. Re-running normalization is idempotent. Legacy and earlier phase backups pass through the same Phase 1 → Phase 2 → Phase 3 pipeline before validated restore.
+
+### Verification completed
+
+Run the complete suite with:
+
+```bash
+npm test
+```
+
+The completed run includes 12 dependency-free storage checks, 47 passing Jest cases, and 25 passing Playwright browser workflows. Phase 3 coverage verifies wallet-unassigned migration, idempotence, the roadmap accounting example, fee-free transfer invariance, reference validation, separate fee accounting, archive retention, and derived edit/delete/restore behavior while retaining every earlier regression suite.
+
+### Manual release checks still required
+
+- Restore a fresh production backup on an isolated preview and verify that every old expense says **Wallet unassigned** while all original budget totals remain unchanged.
+- Enter real opening balances with their effective dates and compare each derived wallet balance against an independent statement or cash count.
+- Exercise wallet create/rename/archive/restore, income, adjustments, transfers with and without fees, expense editing, and both trash recovery paths on supported mobile browsers.
+- Verify negative-balance confirmation, keyboard navigation, installed-PWA updates, offline restart, and a full backup/restore round trip containing archived wallets and linked transfer fees.
+- Complete all outstanding Phase 0–2 production-data and device checks before updating the daily-use origin.
+
+### Known boundaries
+
+- Historical expenses stay wallet-unassigned and cannot be casually assigned from the ordinary edit form; reconciliation is intentionally deferred.
+- Wallet reporting is a chronological shared history in Phase 3. Unified filters and income/net-cash-flow reports belong to Phase 4.
+- Deleting a transfer ledger entry does not silently delete its separate fee expense; both remain independently recoverable/accountable records.
+- Balances reflect only recorded activity and may be negative after explicit confirmation when the ledger is incomplete.
+
+### Suggested next step
+
+Run the Phase 3 real-data preview and manual wallet reconciliation checks. After all earlier release gates pass, begin Phase 4 with unified ledger filters, cash-flow reports, complete ledger exports, accessibility, and offline/update hardening.
+
 ## Overall suggested next step
 
 Complete the final real-data check on an isolated preview origin using a fresh copy of the production backup. Compare counts, IDs, dates, ordering, and totals; then exercise recovery before updating the existing production origin.
 
-Complete the Phase 2 real-data preview and manual release checks. Then begin Phase 3 without assigning historical expenses to wallets or deducting them from newly entered balances.
+Complete the Phase 3 real-data preview and all outstanding manual release checks. Then begin Phase 4 only after wallet balances reconcile independently and a full backup/restore round trip reproduces them.
 
 ## Update template for the next phase
 

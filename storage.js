@@ -42,6 +42,8 @@
     return {
       months: {},
       globalCats: [],
+      wallets: [],
+      walletEntries: [],
       workspaces: [{
         id: 'workspace-existing',
         name: 'Existing Budget',
@@ -54,7 +56,9 @@
         phase1Version: 1,
         transactionTrash: [],
         phase2Version: 1,
-        activeWorkspaceId: 'workspace-existing'
+        activeWorkspaceId: 'workspace-existing',
+        phase3Version: 1,
+        walletEntryTrash: []
       }
     };
   }
@@ -193,6 +197,31 @@
     return { data, changed: true };
   }
 
+  function upgradePhase3Data(input) {
+    const data = clone(input);
+    if (!isObject(data.settings)) data.settings = {};
+    if (!Array.isArray(data.wallets)) data.wallets = [];
+    if (!Array.isArray(data.walletEntries)) data.walletEntries = [];
+    if (!Array.isArray(data.settings.walletEntryTrash)) data.settings.walletEntryTrash = [];
+    if (data.settings.phase3Version === 1) return { data, changed: false };
+
+    Object.values(isObject(data.months) ? data.months : {}).forEach(month => {
+      Object.values(isObject(month?.budgets) ? month.budgets : {}).forEach(budget => {
+        if (!Array.isArray(budget?.expenses)) return;
+        budget.expenses.forEach(expense => {
+          if (isObject(expense) && !Object.prototype.hasOwnProperty.call(expense, 'walletId')) expense.walletId = null;
+        });
+      });
+    });
+    if (Array.isArray(data.settings.transactionTrash)) {
+      data.settings.transactionTrash.forEach(item => {
+        if (isObject(item?.expense) && !Object.prototype.hasOwnProperty.call(item.expense, 'walletId')) item.expense.walletId = null;
+      });
+    }
+    data.settings.phase3Version = 1;
+    return { data, changed: true };
+  }
+
   function validateCategory(category, path, errors) {
     if (!isObject(category)) {
       errors.push(`${path} must be an object`);
@@ -243,6 +272,29 @@
     }
   }
 
+  function validateWalletEntry(entry, path, errors, walletIds) {
+    if (!isObject(entry)) { errors.push(`${path} must be an object`); return; }
+    if (typeof entry.id !== 'string' || !entry.id) errors.push(`${path}.id must be a non-empty string`);
+    if (!['opening', 'income', 'transfer', 'adjustment'].includes(entry.type)) errors.push(`${path}.type is unsupported`);
+    if (!isCalendarDate(entry.date)) errors.push(`${path}.date must be YYYY-MM-DD`);
+    if (typeof entry.amount !== 'number' || !Number.isFinite(entry.amount) || entry.amount === 0) {
+      errors.push(`${path}.amount must be a finite non-zero number`);
+    }
+    if (entry.type !== 'adjustment' && Number.isFinite(entry.amount) && entry.amount < 0) {
+      errors.push(`${path}.amount must be positive for ${entry.type || 'this entry'}`);
+    }
+    if (entry.type === 'transfer') {
+      if (typeof entry.fromWalletId !== 'string' || !walletIds.has(entry.fromWalletId)) errors.push(`${path}.fromWalletId must reference a wallet`);
+      if (typeof entry.toWalletId !== 'string' || !walletIds.has(entry.toWalletId)) errors.push(`${path}.toWalletId must reference a wallet`);
+      if (entry.fromWalletId === entry.toWalletId) errors.push(`${path} transfer wallets must differ`);
+    } else if (typeof entry.walletId !== 'string' || !walletIds.has(entry.walletId)) {
+      errors.push(`${path}.walletId must reference a wallet`);
+    }
+    if (entry.type === 'income' && (typeof entry.source !== 'string' || !entry.source.trim())) errors.push(`${path}.source must be a non-empty string`);
+    if (entry.type === 'adjustment' && (typeof entry.reason !== 'string' || !entry.reason.trim())) errors.push(`${path}.reason must be a non-empty string`);
+    if (entry.description !== undefined && typeof entry.description !== 'string') errors.push(`${path}.description must be a string when present`);
+  }
+
   function validateData(data) {
     const errors = [];
     const warnings = [];
@@ -269,6 +321,31 @@
 
     const requireFullDates = data.settings.phase1Version === 1;
     const phase2 = data.settings.phase2Version === 1;
+    const phase3 = data.settings.phase3Version === 1;
+    const walletIds = new Set();
+    if (phase3) {
+      if (!Array.isArray(data.wallets)) errors.push('wallets must be an array for Phase 3 data');
+      else data.wallets.forEach((wallet, index) => {
+        const path = `wallets[${index}]`;
+        if (!isObject(wallet)) { errors.push(`${path} must be an object`); return; }
+        if (typeof wallet.id !== 'string' || !wallet.id) errors.push(`${path}.id must be a non-empty string`);
+        if (walletIds.has(wallet.id)) errors.push(`Duplicate wallet ID: ${wallet.id}`);
+        walletIds.add(wallet.id);
+        if (typeof wallet.name !== 'string' || !wallet.name.trim()) errors.push(`${path}.name must be a non-empty string`);
+        if (typeof wallet.archived !== 'boolean') errors.push(`${path}.archived must be a boolean`);
+      });
+      if (!Array.isArray(data.walletEntries)) errors.push('walletEntries must be an array for Phase 3 data');
+      else {
+        const entryIds = new Set();
+        data.walletEntries.forEach((entry, index) => {
+          validateWalletEntry(entry, `walletEntries[${index}]`, errors, walletIds);
+          if (isObject(entry)) {
+            if (entryIds.has(entry.id)) errors.push(`Duplicate wallet entry ID: ${entry.id}`);
+            entryIds.add(entry.id);
+          }
+        });
+      }
+    }
     const workspaceIds = new Set();
     if (phase2) {
       if (!Array.isArray(data.workspaces) || !data.workspaces.length) {
@@ -311,6 +388,10 @@
       budget.expenses.forEach((expense, index) => {
         validateExpense(expense, `${path}.expenses[${index}]`, errors, requireFullDates);
         if (!isObject(expense)) return;
+        if (phase3) {
+          if (!Object.prototype.hasOwnProperty.call(expense, 'walletId')) errors.push(`${path}.expenses[${index}].walletId is required`);
+          else if (expense.walletId !== null && !walletIds.has(expense.walletId)) errors.push(`${path}.expenses[${index}].walletId must reference a wallet or be null`);
+        }
         const id = String(expense.id);
         if (expenseIds.has(id)) warnings.push(`Duplicate expense ID ${id} in ${monthKey}`);
         expenseIds.add(id);
@@ -352,6 +433,9 @@
     if (data.settings.phase2Version !== undefined && data.settings.phase2Version !== 1) {
       errors.push('settings.phase2Version must be 1 when present');
     }
+    if (data.settings.phase3Version !== undefined && data.settings.phase3Version !== 1) {
+      errors.push('settings.phase3Version must be 1 when present');
+    }
     if (data.settings.transactionTrash !== undefined && !Array.isArray(data.settings.transactionTrash)) {
       errors.push('settings.transactionTrash must be an array when present');
     }
@@ -366,6 +450,19 @@
         if (!Number.isInteger(item.sourceIndex) || item.sourceIndex < 0) errors.push(`${path}.sourceIndex must be a non-negative integer`);
         if (typeof item.deletedAt !== 'string' || Number.isNaN(Date.parse(item.deletedAt))) errors.push(`${path}.deletedAt must be an ISO date string`);
         validateExpense(item.expense, `${path}.expense`, errors, true);
+        if (phase3 && item.expense?.walletId !== null && !walletIds.has(item.expense?.walletId)) errors.push(`${path}.expense.walletId must reference a wallet or be null`);
+      });
+    }
+    if (data.settings.walletEntryTrash !== undefined && !Array.isArray(data.settings.walletEntryTrash)) {
+      errors.push('settings.walletEntryTrash must be an array when present');
+    }
+    if (Array.isArray(data.settings.walletEntryTrash)) {
+      data.settings.walletEntryTrash.forEach((item, index) => {
+        const path = `settings.walletEntryTrash[${index}]`;
+        if (!isObject(item)) { errors.push(`${path} must be an object`); return; }
+        if (typeof item.id !== 'string' || !item.id) errors.push(`${path}.id must be a non-empty string`);
+        if (typeof item.deletedAt !== 'string' || Number.isNaN(Date.parse(item.deletedAt))) errors.push(`${path}.deletedAt must be an ISO date string`);
+        validateWalletEntry(item.entry, `${path}.entry`, errors, walletIds);
       });
     }
     return { valid: errors.length === 0, errors, warnings };
@@ -397,6 +494,26 @@
       summary.byMonth[key] = { categories, transactions: expenses.length, totalAmount: total };
     });
     return summary;
+  }
+
+  function calculateWalletBalances(data) {
+    const balances = {};
+    (Array.isArray(data.wallets) ? data.wallets : []).forEach(wallet => { balances[wallet.id] = 0; });
+    (Array.isArray(data.walletEntries) ? data.walletEntries : []).forEach(entry => {
+      if (!isObject(entry)) return;
+      if (entry.type === 'transfer') {
+        if (Object.prototype.hasOwnProperty.call(balances, entry.fromWalletId)) balances[entry.fromWalletId] -= entry.amount;
+        if (Object.prototype.hasOwnProperty.call(balances, entry.toWalletId)) balances[entry.toWalletId] += entry.amount;
+      } else if (Object.prototype.hasOwnProperty.call(balances, entry.walletId)) balances[entry.walletId] += entry.amount;
+    });
+    Object.values(isObject(data.months) ? data.months : {}).forEach(month => {
+      Object.values(isObject(month?.budgets) ? month.budgets : {}).forEach(budget => {
+        (Array.isArray(budget?.expenses) ? budget.expenses : []).forEach(expense => {
+          if (expense.walletId !== null && Object.prototype.hasOwnProperty.call(balances, expense.walletId)) balances[expense.walletId] -= expense.amt;
+        });
+      });
+    });
+    return balances;
   }
 
   function parseJson(raw, label) {
@@ -491,12 +608,13 @@
     }
     const phase1 = upgradePhase1Data(data);
     const phase2 = upgradePhase2Data(phase1.data);
-    const validation = validateData(phase2.data);
+    const phase3 = upgradePhase3Data(phase2.data);
+    const validation = validateData(phase3.data);
     validation.warnings.push(...sourceValidation.warnings, ...phase1.warnings);
     if (!validation.valid) {
       throw new StorageAdapterError('INVALID_BACKUP', 'Backup data failed Phase 1 normalization', validation);
     }
-    return { data: phase2.data, sourceVersion, metadata, validation, summary: summarize(phase2.data) };
+    return { data: phase3.data, sourceVersion, metadata, validation, summary: summarize(phase3.data) };
   }
 
   class Adapter {
@@ -556,17 +674,18 @@
       try {
         const active = this.readActive();
         if (active) {
-          if (active.envelope.data.settings.phase1Version !== 1 || active.envelope.data.settings.phase2Version !== 1) {
+          if (active.envelope.data.settings.phase1Version !== 1 || active.envelope.data.settings.phase2Version !== 1 || active.envelope.data.settings.phase3Version !== 1) {
             const before = summarize(active.envelope.data);
             const phase1 = upgradePhase1Data(active.envelope.data);
             const phase2 = upgradePhase2Data(phase1.data);
-            const after = summarize(phase2.data);
+            const phase3 = upgradePhase3Data(phase2.data);
+            const after = summarize(phase3.data);
             if (JSON.stringify(before) !== JSON.stringify(after)) {
               throw new StorageAdapterError('MIGRATION_MISMATCH', 'Workspace migration changed transaction totals');
             }
-            const snapshotKey = this.snapshotCurrent('before-phase-2-workspace-migration');
-            const result = this.commit(phase2.data, active.envelope.revision, {
-              kind: 'phase-2-workspace-migration',
+            const snapshotKey = this.snapshotCurrent('before-phase-3-wallet-migration');
+            const result = this.commit(phase3.data, active.envelope.revision, {
+              kind: 'phase-3-wallet-migration',
               snapshotKey,
               warnings: phase1.warnings,
               sourceSummary: before,
@@ -728,7 +847,7 @@
       const snapshotKey = this.snapshotRaw('before-schema-1-migration', currentRaw);
       const sourceSummary = summarize(parsed.data);
       const upgraded = upgradePhase1Data(parsed.data);
-      const candidate = upgradePhase2Data(upgraded.data).data;
+      const candidate = upgradePhase3Data(upgradePhase2Data(upgraded.data).data).data;
       const destinationSummary = summarize(candidate);
       const legacyFieldsPreserved = candidate.activeMonth === parsed.data.activeMonth &&
         Object.entries(parsed.data.months).every(([monthKey, month]) =>
@@ -858,10 +977,11 @@
       if (!sourceValidation.valid) throw new StorageAdapterError('INVALID_RECOVERY', 'Recovery data failed validation', sourceValidation);
       const upgraded = upgradePhase1Data(data);
       const phase2 = upgradePhase2Data(upgraded.data);
-      const validation = validateData(phase2.data);
+      const phase3 = upgradePhase3Data(phase2.data);
+      const validation = validateData(phase3.data);
       if (!validation.valid) throw new StorageAdapterError('INVALID_RECOVERY', 'Recovery data failed normalization', validation);
       this.snapshotCurrent('before-recovery-switch');
-      return this.commit(phase2.data, expectedRevision, { kind: 'recovery', sourceKey: key });
+      return this.commit(phase3.data, expectedRevision, { kind: 'recovery', sourceKey: key });
     }
 
     recoverExclusive(key, expectedRevision) {
@@ -890,8 +1010,10 @@
     normalizeExpenseDate,
     upgradePhase1Data,
     upgradePhase2Data,
+    upgradePhase3Data,
     isCalendarDate,
     summarize,
+    calculateWalletBalances,
     emptyData,
     constants: { SCHEMA_VERSION, BACKUP_FORMAT, ACTIVE_KEY, REVISION_PREFIX, RECOVERY_PREFIX, WRITE_LOCK_NAME, LEGACY_KEYS }
   };

@@ -267,7 +267,8 @@ describe('Phase 0 backup versions and rejection', () => {
     expect(inspected.data.activeMonth).toBe('2026-09');
     expect(inspected.data.settings).toEqual({
       lastBackupAt: null, phase1Version: 1, transactionTrash: [],
-      phase2Version: 1, activeWorkspaceId: 'workspace-existing'
+      phase2Version: 1, activeWorkspaceId: 'workspace-existing',
+      phase3Version: 1, walletEntryTrash: []
     });
   });
 

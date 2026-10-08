@@ -8,6 +8,9 @@ All budget data stays in your browser's local storage. After the app shell has b
 
 - **Named budget workspaces** — keep Family, Personal, or other budgets independent while viewing combined monthly totals without double counting.
 - **Workspace-aware month planning** — each workspace copies categories from its latest earlier month, or its own template when no earlier budget exists.
+- **Shared wallets and derived balances** — track Cash, Bank, bKash, or custom wallets across every workspace without storing a mutable balance.
+- **Income and opening balances** — record dated income separately from the balance a wallet started with.
+- **Transfers and fees** — move money between wallets without inflating income or spending; record an optional fee as a linked budget expense.
 - **Reliable expense entry** — record and edit a category, description, finite positive amount, and full local calendar date.
 - **At-a-glance budget status** — see the remaining balance, total spent, daily average, days left, and recommended daily spending.
 - **Budget warnings** — get visual warnings when funds are running low or a monthly budget has been exceeded.
@@ -43,9 +46,11 @@ Opening `index.html` directly may display the interface, but serving the project
 1. Select or create a workspace such as Family or Personal.
 2. Open **Settings** and create that workspace’s category template, or import one from CSV.
 3. Select **+ New Month** and choose a month. Each workspace copies its latest earlier budget, or its own template when no earlier month exists.
-4. Use the **Add** tab to record dated expenses. Use the edit button in **Categories** or **Log** to correct an expense or move it to another workspace.
-5. Review the workspace-specific tabs or select **All Workspaces** for combined monthly totals.
-6. Use **Settings → Data → Backup** regularly to download a JSON copy of your data.
+4. Open **Wallets** to create each Cash, Bank, bKash, or custom wallet and enter its balance as of a chosen date.
+5. Add income, transfers, or reasoned balance adjustments from **Wallets**. A transfer fee can be assigned to a workspace and category.
+6. Use the **Add** tab to record a dated expense from an active wallet. Use the edit button in **Categories** or **Log** to correct it or move it to another workspace.
+7. Review the workspace-specific tabs or select **All Workspaces** for combined monthly totals. Budget remaining and tracked wallet balance are intentionally separate.
+8. Use **Settings → Data → Backup** regularly to download a JSON copy of your data.
 
 ## CSV Import Format
 
@@ -78,6 +83,8 @@ Restoring a JSON backup first validates and previews its contents. After confirm
 
 Existing installations are migrated into one workspace named **Existing Budget**. The migration keeps the original records and totals together instead of guessing whether historical spending was Family or Personal.
 
+Historical expenses are also preserved as **Wallet unassigned**. They continue to count in budget reports but do not reduce new wallet opening balances. New expenses require an active wallet, and wallet balances are recalculated from opening balances, income, adjustments, transfers, and wallet-linked expenses.
+
 ## Installing as an App
 
 When hosted on HTTPS (or opened on `localhost`), use the browser's **Install app** or **Add to Home Screen** option. The included manifest supplies the app name, colors, portrait orientation, and icons. Once the application has been loaded successfully, its cached shell is available offline.
@@ -104,16 +111,19 @@ When changing cached assets, update `CACHE_NAME` in `sw.js` so previously instal
 │   ├── implementation-status.md # Living implementation and verification log
 │   ├── phase-0-test-report.md    # Phase 0 results and release findings
 │   ├── phase-1-test-report.md    # Phase 1 results and release findings
-│   └── phase-2-test-report.md    # Phase 2 results and release findings
+│   ├── phase-2-test-report.md    # Phase 2 results and release findings
+│   └── phase-3-test-report.md    # Phase 3 results and release findings
 ├── tests/
 │   ├── storage.test.js     # Dependency-free storage safety tests
 │   ├── phase0-storage.jest.test.js # Phase 0 Jest storage contracts
 │   ├── phase1-storage.jest.test.js # Phase 1 normalization contracts
-│   └── phase2-storage.jest.test.js # Phase 2 workspace contracts
+│   ├── phase2-storage.jest.test.js # Phase 2 workspace contracts
+│   └── phase3-storage.jest.test.js # Phase 3 wallet-ledger contracts
 ├── e2e/
 │   ├── phase0.spec.js      # Phase 0 Playwright browser workflows
 │   ├── phase1.spec.js      # Phase 1 Playwright browser workflows
-│   └── phase2.spec.js      # Phase 2 Playwright browser workflows
+│   ├── phase2.spec.js      # Phase 2 Playwright browser workflows
+│   └── phase3.spec.js      # Phase 3 Playwright browser workflows
 ├── favicon.png             # Browser favicon
 ├── apple-touch-icon.png    # iOS home-screen icon
 ├── icon-192.png            # PWA icon
@@ -142,7 +152,7 @@ npm test
 
 Individual suites are available through `npm run test:legacy`, `npm run test:jest`, and `npm run test:playwright`. The Playwright configuration uses the installed Google Chrome channel on this macOS 12 ARM64 environment.
 
-The current implementation status and recommended next step are documented in [`docs/implementation-status.md`](docs/implementation-status.md). Detailed evidence is in the [Phase 0](docs/phase-0-test-report.md), [Phase 1](docs/phase-1-test-report.md), and [Phase 2](docs/phase-2-test-report.md) reports.
+The current implementation status and recommended next step are documented in [`docs/implementation-status.md`](docs/implementation-status.md). Detailed evidence is in the [Phase 0](docs/phase-0-test-report.md), [Phase 1](docs/phase-1-test-report.md), [Phase 2](docs/phase-2-test-report.md), and [Phase 3](docs/phase-3-test-report.md) reports.
 
 ## Browser Support
 

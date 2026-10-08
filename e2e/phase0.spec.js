@@ -75,11 +75,12 @@ test.describe('Phase 0 recovery and migration browser workflows', () => {
     expect(stored.envelope.schemaVersion).toBe(1);
     expect(stored.envelope.metadata.kind).toBe('initial');
     expect(stored.envelope.data).toEqual({
-      months: {}, globalCats: [], activeMonth: null,
+      months: {}, globalCats: [], wallets: [], walletEntries: [], activeMonth: null,
       workspaces: [{ id: 'workspace-existing', name: 'Existing Budget', archived: false, template: [] }],
       settings: {
         lastBackupAt: null, phase1Version: 1, transactionTrash: [],
-        phase2Version: 1, activeWorkspaceId: 'workspace-existing'
+        phase2Version: 1, activeWorkspaceId: 'workspace-existing',
+        phase3Version: 1, walletEntryTrash: []
       }
     });
   });
@@ -218,7 +219,15 @@ test.describe('Phase 0 recovery and migration browser workflows', () => {
     await page.locator('#migrationVerified').check();
     await page.locator('#runMigrationBtn').click();
 
+    await page.getByRole('button', { name: 'Wallets', exact: true }).click();
+    await page.getByRole('button', { name: '+ Wallet' }).click();
+    await page.locator('#walletName').fill('Cash');
+    await page.locator('#walletOpeningAmount').fill('100');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+
+    await page.getByRole('button', { name: 'Add', exact: true }).click();
     await page.locator('#catSel').selectOption({ label: 'Transport' });
+    await page.locator('#walletSel').selectOption({ label: 'Cash' });
     await page.locator('#descIn').fill('New fare');
     await page.locator('#amtIn').fill('10');
     await page.locator('#tab-add').getByRole('button', { name: 'Add', exact: true }).click();
@@ -231,10 +240,11 @@ test.describe('Phase 0 recovery and migration browser workflows', () => {
     expect(addedCatId).toBe(20);
 
     await page.getByRole('button', { name: 'Log', exact: true }).click();
-    const busOne = page.locator('.log-item').filter({ hasText: 'Bus one' });
+    const expenseRows = page.locator('#logList .log-item');
+    const busOne = expenseRows.filter({ hasText: 'Bus one' });
     page.once('dialog', dialog => dialog.accept());
     await busOne.locator('.del-btn').click();
-    await expect(page.locator('.log-item')).toHaveCount(2);
+    await expect(expenseRows).toHaveCount(2);
     await expect(page.getByText('Bus one', { exact: true })).toHaveCount(0);
     await expect(page.getByText('Bus two', { exact: true })).toBeVisible();
   });

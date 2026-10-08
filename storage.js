@@ -44,9 +44,95 @@
       globalCats: [],
       activeMonth: null,
       settings: {
-        lastBackupAt: null
+        lastBackupAt: null,
+        phase1Version: 1,
+        transactionTrash: []
       }
     };
+  }
+
+  const MONTH_NAMES = Object.freeze({
+    jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
+    apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7,
+    aug: 8, august: 8, sep: 9, sept: 9, september: 9, oct: 10,
+    october: 10, nov: 11, november: 11, dec: 12, december: 12
+  });
+
+  function isCalendarDate(value) {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() + 1 === month && date.getUTCDate() === day;
+  }
+
+  function normalizeExpenseDate(value, monthKey) {
+    const original = typeof value === 'string' ? value : '';
+    if (isCalendarDate(original)) {
+      if (original.slice(0, 7) === monthKey) return { date: original };
+      return {
+        date: null,
+        legacyDate: original,
+        dateReview: { reason: 'Date belongs to a different month', sourceMonth: monthKey }
+      };
+    }
+
+    const match = original.trim().match(/^(\d{1,2})[\s\-\/.]+([A-Za-z]+)$/);
+    const keyMatch = typeof monthKey === 'string' && monthKey.match(/^(\d{4})-(\d{2})$/);
+    const parsedMonth = match ? MONTH_NAMES[match[2].toLowerCase()] : null;
+    if (match && keyMatch && parsedMonth) {
+      const year = Number(keyMatch[1]);
+      const containingMonth = Number(keyMatch[2]);
+      const day = Number(match[1]);
+      const candidate = `${year}-${String(parsedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      if (parsedMonth === containingMonth && isCalendarDate(candidate)) {
+        return { date: candidate, legacyDate: original };
+      }
+      return {
+        date: null,
+        legacyDate: original,
+        dateReview: {
+          reason: parsedMonth === containingMonth ? 'Stored day is not valid' : 'Stored month conflicts with its budget month',
+          sourceMonth: monthKey
+        }
+      };
+    }
+    return {
+      date: null,
+      legacyDate: original,
+      dateReview: { reason: 'Stored date could not be verified', sourceMonth: monthKey }
+    };
+  }
+
+  function upgradePhase1Data(input) {
+    const data = clone(input);
+    if (!isObject(data.settings)) data.settings = { lastBackupAt: null };
+    if (!Object.prototype.hasOwnProperty.call(data.settings, 'lastBackupAt')) data.settings.lastBackupAt = null;
+    if (!Array.isArray(data.settings.transactionTrash)) data.settings.transactionTrash = [];
+
+    const warnings = [];
+    Object.entries(isObject(data.months) ? data.months : {}).forEach(([monthKey, month]) => {
+      if (!isObject(month) || !Array.isArray(month.expenses) || !Array.isArray(month.categories)) return;
+      month.categories.forEach(category => {
+        if (isObject(category) && typeof category.archived !== 'boolean') category.archived = false;
+      });
+      month.expenses.forEach(expense => {
+        if (!isObject(expense)) return;
+        if (isCalendarDate(expense.date) && expense.date.slice(0, 7) === monthKey) return;
+        if (expense.date === null && isObject(expense.dateReview)) return;
+        const normalized = normalizeExpenseDate(expense.date, monthKey);
+        expense.date = normalized.date;
+        if (normalized.legacyDate !== undefined) expense.legacyDate = normalized.legacyDate;
+        if (normalized.dateReview) {
+          expense.dateReview = normalized.dateReview;
+          warnings.push(`Expense ${String(expense.id)} in ${monthKey} needs a date review`);
+        }
+      });
+    });
+    data.globalCats.forEach(category => {
+      if (isObject(category) && typeof category.archived !== 'boolean') category.archived = false;
+    });
+    data.settings.phase1Version = 1;
+    return { data, warnings };
   }
 
   function validateCategory(category, path, errors) {
@@ -63,9 +149,12 @@
     if (typeof category.budget !== 'number' || !Number.isFinite(category.budget) || category.budget < 0) {
       errors.push(`${path}.budget must be a finite non-negative number`);
     }
+    if (category.archived !== undefined && typeof category.archived !== 'boolean') {
+      errors.push(`${path}.archived must be a boolean when present`);
+    }
   }
 
-  function validateExpense(expense, path, errors) {
+  function validateExpense(expense, path, errors, requireFullDate) {
     if (!isObject(expense)) {
       errors.push(`${path} must be an object`);
       return;
@@ -85,7 +174,13 @@
     if (typeof expense.amt !== 'number' || !Number.isFinite(expense.amt) || expense.amt <= 0) {
       errors.push(`${path}.amt must be a finite positive number`);
     }
-    if (typeof expense.date !== 'string' || !expense.date.trim()) {
+    if (requireFullDate) {
+      const reviewable = expense.date === null && typeof expense.legacyDate === 'string' && isObject(expense.dateReview) &&
+        typeof expense.dateReview.reason === 'string' && expense.dateReview.reason.length > 0;
+      if (!isCalendarDate(expense.date) && !reviewable) {
+        errors.push(`${path}.date must be YYYY-MM-DD or a preserved date requiring review`);
+      }
+    } else if (typeof expense.date !== 'string' || !expense.date.trim()) {
       errors.push(`${path}.date must be a non-empty string`);
     }
   }
@@ -114,6 +209,7 @@
       }
     });
 
+    const requireFullDates = data.settings.phase1Version === 1;
     Object.entries(data.months).forEach(([monthKey, month]) => {
       const path = `months.${monthKey}`;
       if (!/^\d{4}-\d{2}$/.test(monthKey)) warnings.push(`Unusual month key: ${monthKey}`);
@@ -138,7 +234,7 @@
 
       const expenseIds = new Set();
       month.expenses.forEach((expense, index) => {
-        validateExpense(expense, `${path}.expenses[${index}]`, errors);
+        validateExpense(expense, `${path}.expenses[${index}]`, errors, requireFullDates);
         if (!isObject(expense)) return;
         const id = String(expense.id);
         if (expenseIds.has(id)) warnings.push(`Duplicate expense ID ${id} in ${monthKey}`);
@@ -157,6 +253,23 @@
     if (data.settings.lastBackupAt !== null &&
         (typeof data.settings.lastBackupAt !== 'string' || Number.isNaN(Date.parse(data.settings.lastBackupAt)))) {
       errors.push('settings.lastBackupAt must be an ISO date string or null');
+    }
+    if (data.settings.phase1Version !== undefined && data.settings.phase1Version !== 1) {
+      errors.push('settings.phase1Version must be 1 when present');
+    }
+    if (data.settings.transactionTrash !== undefined && !Array.isArray(data.settings.transactionTrash)) {
+      errors.push('settings.transactionTrash must be an array when present');
+    }
+    if (Array.isArray(data.settings.transactionTrash)) {
+      data.settings.transactionTrash.forEach((item, index) => {
+        const path = `settings.transactionTrash[${index}]`;
+        if (!isObject(item)) { errors.push(`${path} must be an object`); return; }
+        if (typeof item.id !== 'string' || !item.id) errors.push(`${path}.id must be a non-empty string`);
+        if (typeof item.sourceMonth !== 'string' || !item.sourceMonth) errors.push(`${path}.sourceMonth must be a non-empty string`);
+        if (!Number.isInteger(item.sourceIndex) || item.sourceIndex < 0) errors.push(`${path}.sourceIndex must be a non-negative integer`);
+        if (typeof item.deletedAt !== 'string' || Number.isNaN(Date.parse(item.deletedAt))) errors.push(`${path}.deletedAt must be an ISO date string`);
+        validateExpense(item.expense, `${path}.expense`, errors, true);
+      });
     }
     return { valid: errors.length === 0, errors, warnings };
   }
@@ -270,11 +383,17 @@
     data = clone(data);
     if (!isObject(data.settings)) data.settings = { lastBackupAt: null };
     if (!Object.prototype.hasOwnProperty.call(data.settings, 'lastBackupAt')) data.settings.lastBackupAt = null;
-    const validation = validateData(data);
-    if (!validation.valid) {
-      throw new StorageAdapterError('INVALID_BACKUP', 'Backup data failed validation', validation);
+    const sourceValidation = validateData(data);
+    if (!sourceValidation.valid) {
+      throw new StorageAdapterError('INVALID_BACKUP', 'Backup data failed validation', sourceValidation);
     }
-    return { data, sourceVersion, metadata, validation, summary: summarize(data) };
+    const upgraded = upgradePhase1Data(data);
+    const validation = validateData(upgraded.data);
+    validation.warnings.push(...sourceValidation.warnings, ...upgraded.warnings);
+    if (!validation.valid) {
+      throw new StorageAdapterError('INVALID_BACKUP', 'Backup data failed Phase 1 normalization', validation);
+    }
+    return { data: upgraded.data, sourceVersion, metadata, validation, summary: summarize(upgraded.data) };
   }
 
   class Adapter {
@@ -333,7 +452,26 @@
     bootstrap() {
       try {
         const active = this.readActive();
-        if (active) return { status: 'ready', ...active };
+        if (active) {
+          if (active.envelope.data.settings.phase1Version !== 1) {
+            const before = summarize(active.envelope.data);
+            const upgraded = upgradePhase1Data(active.envelope.data);
+            const after = summarize(upgraded.data);
+            if (JSON.stringify(before) !== JSON.stringify(after)) {
+              throw new StorageAdapterError('MIGRATION_MISMATCH', 'Phase 1 normalization changed transaction totals');
+            }
+            const snapshotKey = this.snapshotCurrent('before-phase-1-normalization');
+            const result = this.commit(upgraded.data, active.envelope.revision, {
+              kind: 'phase-1-normalization',
+              snapshotKey,
+              warnings: upgraded.warnings,
+              sourceSummary: before,
+              destinationSummary: after
+            });
+            return { status: 'ready', ...result };
+          }
+          return { status: 'ready', ...active };
+        }
       } catch (error) {
         return {
           status: 'recovery_required',
@@ -485,13 +623,18 @@
       const parsed = parseLegacy(currentRaw);
       const snapshotKey = this.snapshotRaw('before-schema-1-migration', currentRaw);
       const sourceSummary = summarize(parsed.data);
-      const candidate = clone(parsed.data);
+      const upgraded = upgradePhase1Data(parsed.data);
+      const candidate = upgraded.data;
       const destinationSummary = summarize(candidate);
-      const exactLegacyFieldsPreserved =
-        JSON.stringify(candidate.months) === JSON.stringify(parsed.data.months) &&
-        JSON.stringify(candidate.globalCats) === JSON.stringify(parsed.data.globalCats) &&
-        candidate.activeMonth === parsed.data.activeMonth;
-      if (JSON.stringify(sourceSummary) !== JSON.stringify(destinationSummary) || !exactLegacyFieldsPreserved) {
+      const legacyFieldsPreserved = candidate.activeMonth === parsed.data.activeMonth &&
+        Object.entries(parsed.data.months).every(([monthKey, month]) =>
+          candidate.months[monthKey] && month.expenses.every((expense, index) => {
+            const migrated = candidate.months[monthKey].expenses[index];
+            return migrated && migrated.id === expense.id && migrated.catId === expense.catId &&
+              migrated.cat === expense.cat && migrated.desc === expense.desc && migrated.amt === expense.amt &&
+              (migrated.date === expense.date || migrated.legacyDate === expense.date);
+          }));
+      if (JSON.stringify(sourceSummary) !== JSON.stringify(destinationSummary) || !legacyFieldsPreserved) {
         throw new StorageAdapterError('MIGRATION_MISMATCH', 'Candidate counts, totals, or legacy fields do not match the source dataset');
       }
       const result = this.commit(candidate, null, {
@@ -504,7 +647,8 @@
           warnings: parsed.validation.warnings,
           sourceSummary,
           destinationSummary,
-          exactLegacyFieldsPreserved
+          legacyFieldsPreserved,
+          dateWarnings: upgraded.warnings
         }
       });
       return result;
@@ -606,10 +750,13 @@
       const value = parseJson(raw, 'recovery point');
       const data = value.kind === 'dataset' ? value.envelope && value.envelope.data : value.data;
       if (!data) throw new StorageAdapterError('INVALID_RECOVERY', 'This recovery artifact cannot be activated directly');
-      const validation = validateData(data);
-      if (!validation.valid) throw new StorageAdapterError('INVALID_RECOVERY', 'Recovery data failed validation', validation);
+      const sourceValidation = validateData(data);
+      if (!sourceValidation.valid) throw new StorageAdapterError('INVALID_RECOVERY', 'Recovery data failed validation', sourceValidation);
+      const upgraded = upgradePhase1Data(data);
+      const validation = validateData(upgraded.data);
+      if (!validation.valid) throw new StorageAdapterError('INVALID_RECOVERY', 'Recovery data failed normalization', validation);
       this.snapshotCurrent('before-recovery-switch');
-      return this.commit(data, expectedRevision, { kind: 'recovery', sourceKey: key });
+      return this.commit(upgraded.data, expectedRevision, { kind: 'recovery', sourceKey: key });
     }
 
     recoverExclusive(key, expectedRevision) {
@@ -635,6 +782,9 @@
     StorageAdapterError,
     validateData,
     normalizeBackup,
+    normalizeExpenseDate,
+    upgradePhase1Data,
+    isCalendarDate,
     summarize,
     emptyData,
     constants: { SCHEMA_VERSION, BACKUP_FORMAT, ACTIVE_KEY, REVISION_PREFIX, RECOVERY_PREFIX, WRITE_LOCK_NAME, LEGACY_KEYS }

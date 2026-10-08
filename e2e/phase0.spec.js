@@ -75,7 +75,8 @@ test.describe('Phase 0 recovery and migration browser workflows', () => {
     expect(stored.envelope.schemaVersion).toBe(1);
     expect(stored.envelope.metadata.kind).toBe('initial');
     expect(stored.envelope.data).toEqual({
-      months: {}, globalCats: [], activeMonth: null, settings: { lastBackupAt: null }
+      months: {}, globalCats: [], activeMonth: null,
+      settings: { lastBackupAt: null, phase1Version: 1, transactionTrash: [] }
     });
   });
 
@@ -256,6 +257,7 @@ test.describe('Phase 0 recovery and migration browser workflows', () => {
 
   test('invalid restore is rejected and valid restore is previewed before replacement', async ({ page }) => {
     await page.goto('/index.html');
+    await expect(page.getByText('No months yet')).toBeVisible();
     const before = await page.evaluate(key => localStorage.getItem(key), ACTIVE_KEY);
     await page.locator('#settingsBtn').click();
 

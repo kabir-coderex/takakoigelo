@@ -10,7 +10,7 @@ This is the living delivery record for the product roadmap. Update it after ever
 | Phase | Status | Implementation summary |
 | --- | --- | --- |
 | 0. Recovery and migration foundation | Release candidate | All automated gates pass; real-data preview verification remains the production release gate |
-| 1. Reliable transaction entry | Not started | Edit support, full dates, safe rendering, category lifecycle, and recoverable deletion |
+| 1. Reliable transaction entry | Release candidate | Editable full-date expenses, safe rendering, category archival/import protection, and recoverable deletion |
 | 2. Multiple budget workspaces | Not started | Independent Family/Personal-style workspaces and an all-workspaces view |
 | 3. Wallets, income, and transfers | Not started | Shared wallet ledger, balances, income, transfers, and fees |
 | 4. Unified reports and daily-use polish | Not started | Ledger-based filters, exports, accessibility, and offline/update hardening |
@@ -112,11 +112,77 @@ Phase 0 should not be deployed to the daily-use origin until these checks pass o
 - Phase 0 intentionally preserves the legacy transaction shape. Full dates, editing, HTML-safe rendering, category archival, and recoverable transaction deletion belong to Phase 1.
 - Recovery snapshots are retained deliberately. Any future cleanup feature must be explicit and must never delete the active dataset.
 
+## Phase 1 — Reliable transaction entry
+
+Implementation date: 8 October 2026
+Code status: Complete
+Release status: Ready for isolated real-data preview; see [`phase-1-test-report.md`](./phase-1-test-report.md)
+
+### Implementation brief
+
+Phase 1 adds full local calendar dates and editing without replacing the existing expense ledger. A one-time `phase1Version` data normalization runs inside the existing serialized storage workflow. Before normalizing an already active Phase 0 dataset, the adapter creates a recoverable dataset snapshot and verifies that transaction counts and totals are unchanged.
+
+Legacy display dates are converted to `YYYY-MM-DD` only when their day and month are valid and the month agrees with the containing budget month. The exact original string remains in `legacyDate`. Conflicting or unparseable values remain preserved with `date: null` and a visible review reason; the application does not invent a date.
+
+### Delivered
+
+- Added full-date entry with a date constrained to the selected budget month.
+- Added expense editing for amount, description, category, and date.
+- Added explicit cross-month moves. The destination month must already exist and the user must choose a valid destination category and confirm the move.
+- Added finite, positive amount validation in both the interface and storage validator.
+- Escaped user-controlled category, expense, month, date, recovery, and imported text in HTML-rendered views.
+- Preserved category-name snapshots on existing transactions when categories are renamed.
+- Archived monthly categories that still have transactions instead of deleting them; archived categories remain in historical reports and can be restored.
+- Prevented monthly CSV replacement from removing categories referenced by existing expenses. Referenced categories are retained as archived unless the import reactivates them.
+- Excluded archived categories when creating new expenses or copying categories into a new month.
+- Moved single and bulk expense deletions to persistent transaction trash, with immediate Undo and Settings-based restore.
+- Added recovery snapshots before whole-month and all-month deletion.
+- Extended expense CSV export with verified date, original legacy date, and date-review status columns.
+- Kept legacy, versioned, and recovered backups restorable through the same normalization pipeline.
+
+### Data migration and compatibility
+
+The storage envelope and backup format remain schema version 1 because Phase 1 fields are backward-compatible additions. Dataset evolution is tracked separately by `settings.phase1Version: 1`. Phase 0 datasets without that marker are snapshotted and normalized once; reopening is idempotent.
+
+Normalized legacy expenses retain all IDs, amounts, descriptions, category IDs/snapshots, order, and containing months. Trustworthy dates gain their inferred full date while retaining the original string. Conflicting dates retain only the original value plus review metadata until the user corrects them. Totals do not depend on date normalization and are compared before activation.
+
+Deleted expenses are stored in `settings.transactionTrash` with their full expense record, source month, source position, and deletion timestamp. They remain part of full JSON backups but are excluded from active spending totals until restored.
+
+### Verification completed
+
+Run the full suite with:
+
+```bash
+npm test
+```
+
+The completed run includes 12 dependency-free storage checks, 38 passing Jest cases, and 17 passing Playwright browser workflows. Phase 1 coverage verifies trusted and conflicting date normalization, migration snapshots and unchanged totals, strict amount/date validation, HTML-safe rendering, full-date entry, editing, confirmed month moves, trash/undo, category archival, CSV replacement protection, and every Phase 0 regression workflow.
+
+### Manual release checks still required
+
+- Preview a fresh copy of real production data and compare every pre/post-normalization transaction count and monthly/category total.
+- Review every flagged legacy date and confirm that no conflicting date was inferred.
+- Exercise editing, cross-month moves, category archival/restore, CSV replacement, trash restore, backup, restore, and recovery on supported mobile browsers.
+- Confirm date-input behavior and local calendar dates on devices in the production timezone.
+- Verify keyboard and screen-reader operation of edit, delete, Undo, category archive, and restore controls.
+- Complete the outstanding Phase 0 production release checks before updating the daily-use origin.
+
+### Known boundaries
+
+- A cross-month edit requires the destination month and category to exist first; Phase 2 workspace-aware reassignment will build on this rule.
+- Date normalization recognizes the English abbreviated/full month names produced by the legacy application. Other or conflicting strings are preserved for review.
+- Transaction trash is intentionally retained and has no permanent-empty action in Phase 1.
+- Whole-month and all-month deletion use recovery snapshots rather than transaction trash because their scope includes budgets and category structure.
+
+### Suggested next step
+
+Run the Phase 1 real-data preview and manual mobile/accessibility checks. After both Phase 0 and Phase 1 release gates pass in the daily-use environment, begin Phase 2 with the Existing Budget workspace migration.
+
 ## Suggested next step
 
 Complete the final real-data check on an isolated preview origin using a fresh copy of the production backup. Compare counts, IDs, dates, ordering, and totals; then exercise recovery before updating the existing production origin.
 
-After the real-data gate passes and Phase 0 is observed successfully in production, begin Phase 1 with full `YYYY-MM-DD` transaction dates and safe DOM/text rendering.
+Complete the Phase 1 real-data preview and manual release checks. Then begin Phase 2 by mapping all existing records into one **Existing Budget** workspace without duplicating transactions.
 
 ## Update template for the next phase
 

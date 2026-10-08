@@ -7,15 +7,15 @@ All budget data stays in your browser's local storage. After the app shell has b
 ## Features
 
 - **Monthly budget workspaces** — create and switch between months, with categories and budgets copied from the latest month or the global template.
-- **Fast expense entry** — record a category, description, and amount for each expense.
+- **Reliable expense entry** — record and edit a category, description, finite positive amount, and full local calendar date.
 - **At-a-glance budget status** — see the remaining balance, total spent, daily average, days left, and recommended daily spending.
 - **Budget warnings** — get visual warnings when funds are running low or a monthly budget has been exceeded.
-- **Category-level tracking** — view spending and progress for every category, then expand a category to inspect or delete its transactions.
+- **Category-level tracking** — view spending and progress for every category, then expand a category to inspect, edit, or move transactions to recoverable trash.
 - **Built-in analytics** — review daily spending, category breakdowns, budget status, the highest-spending day, biggest purchase, and top five expenses.
 - **Monthly history** — compare total spending and leading categories across recorded months.
 - **Searchable expense log** — find transactions by description, category, or date.
-- **Flexible category management** — add, edit, delete, and drag to reorder both global-template and month-specific categories.
-- **CSV category import** — upload or paste category data, merge it with existing categories, or replace the target list.
+- **Flexible category management** — add, edit, archive, restore, and drag to reorder both global-template and month-specific categories without disconnecting historical expenses.
+- **CSV category import** — upload or paste category data, merge it with existing categories, or safely replace the target list while retaining referenced categories.
 - **Data portability** — export expenses or categories as CSV, and back up or restore the full application state as JSON.
 - **Installable PWA** — add the tracker to a phone or desktop home screen for a standalone app experience.
 - **Offline support** — a service worker caches the application shell and automatically activates updated versions.
@@ -41,7 +41,7 @@ Opening `index.html` directly may display the interface, but serving the project
 
 1. Open **Settings** and create a global category template, or import one from CSV.
 2. Select **+ New Month** and choose a month. The first month copies the global template; later months copy categories and budgets from the latest existing calendar month.
-3. Use the **Add** tab to record expenses.
+3. Use the **Add** tab to record dated expenses. Use the edit button in **Categories** or **Log** to correct or move an expense.
 4. Review the **Categories**, **Analytics**, **History**, and **Log** tabs to monitor spending.
 5. Use **Settings → Data → Backup** regularly to download a JSON copy of your data.
 
@@ -59,9 +59,9 @@ Internet,500
 Imports can target either the global template or the active month:
 
 - **Merge** adds new categories and updates the budget of matching category names.
-- **Replace** clears the target category list before importing the supplied rows.
+- **Replace** replaces unreferenced categories. Categories used by existing expenses are retained as archived so records never disappear.
 
-Expense CSV files are export-only and contain `Date`, `Category`, `Description`, and `Amount (BDT)` columns.
+Expense CSV files are export-only and contain verified date, original legacy date, date status, category, description, and amount columns.
 
 ## Data Storage and Privacy
 
@@ -98,12 +98,15 @@ When changing cached assets, update `CACHE_NAME` in `sw.js` so previously instal
 ├── docs/
 │   ├── roadmap.md          # Product phases and release gates
 │   ├── implementation-status.md # Living implementation and verification log
-│   └── phase-0-test-report.md    # Jest/Playwright results and release findings
+│   ├── phase-0-test-report.md    # Phase 0 results and release findings
+│   └── phase-1-test-report.md    # Phase 1 results and release findings
 ├── tests/
 │   ├── storage.test.js     # Dependency-free storage safety tests
-│   └── phase0-storage.jest.test.js # Jest storage and adversarial contracts
+│   ├── phase0-storage.jest.test.js # Phase 0 Jest storage contracts
+│   └── phase1-storage.jest.test.js # Phase 1 normalization contracts
 ├── e2e/
-│   └── phase0.spec.js      # Playwright browser workflows
+│   ├── phase0.spec.js      # Phase 0 Playwright browser workflows
+│   └── phase1.spec.js      # Phase 1 Playwright browser workflows
 ├── favicon.png             # Browser favicon
 ├── apple-touch-icon.png    # iOS home-screen icon
 ├── icon-192.png            # PWA icon
@@ -132,7 +135,7 @@ npm test
 
 Individual suites are available through `npm run test:legacy`, `npm run test:jest`, and `npm run test:playwright`. The Playwright configuration uses the installed Google Chrome channel on this macOS 12 ARM64 environment.
 
-The current implementation status and recommended next step are documented in [`docs/implementation-status.md`](docs/implementation-status.md). Detailed Phase 0 evidence and release blockers are in [`docs/phase-0-test-report.md`](docs/phase-0-test-report.md).
+The current implementation status and recommended next step are documented in [`docs/implementation-status.md`](docs/implementation-status.md). Detailed evidence is in the [Phase 0](docs/phase-0-test-report.md) and [Phase 1](docs/phase-1-test-report.md) reports.
 
 ## Browser Support
 

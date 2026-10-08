@@ -180,8 +180,11 @@ describe('Phase 0 legacy migration', () => {
     expect(backup.metadata.rawLegacy).toEqual(boot.rawLegacy);
 
     const migrated = adapter.migrateLegacy(boot.rawLegacy);
-    expect(migrated.envelope.data.months).toEqual(monthData);
-    expect(migrated.envelope.metadata.validation.exactLegacyFieldsPreserved).toBe(true);
+    expect(migrated.envelope.data.months['2026-09'].expenses[0]).toEqual(expect.objectContaining({
+      id: 101, desc: 'Lunch <special>', amt: 250.5, date: '2026-09-08', legacyDate: '08 Sep'
+    }));
+    expect(migrated.envelope.data.months['2026-10'].expenses[0].date).toBe('2026-10-01');
+    expect(migrated.envelope.metadata.validation.legacyFieldsPreserved).toBe(true);
     expect(migrated.envelope.metadata.validation.sourceSummary)
       .toEqual(migrated.envelope.metadata.validation.destinationSummary);
     for (const [key, raw] of Object.entries(seed)) expect(storage.getItem(key)).toBe(raw);
@@ -262,7 +265,7 @@ describe('Phase 0 backup versions and rejection', () => {
     expect(inspected.sourceVersion).toBe(0);
     expect(inspected.data.globalCats).toEqual([]);
     expect(inspected.data.activeMonth).toBe('2026-09');
-    expect(inspected.data.settings).toEqual({ lastBackupAt: null });
+    expect(inspected.data.settings).toEqual({ lastBackupAt: null, phase1Version: 1, transactionTrash: [] });
   });
 
   test.each([
